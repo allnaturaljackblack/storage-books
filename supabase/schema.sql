@@ -28,7 +28,7 @@ create table if not exists transactions (
   description text,
   original_description text,
   amount decimal(12,2) not null, -- positive = income, negative = expense
-  source text check (source in ('chase', 'suncoast', 'amex', 'manual')),
+  source text check (source in ('chase', 'suncoast', 'amex', 'manual', 'easystorage')),
   source_type text check (source_type in ('bank', 'credit_card')),
   expense_type text check (expense_type in ('opex', 'one_time', 'capex', 'owner_addback')),
   is_autopayment boolean default false,
@@ -87,6 +87,29 @@ create table if not exists user_roles (
 create index if not exists idx_transactions_company_date on transactions(company_id, date);
 create index if not exists idx_transactions_category on transactions(category_id);
 create index if not exists idx_transactions_source_type on transactions(source_type);
+
+-- Bank P&L configuration
+create table if not exists bank_pl_categories (
+  id uuid default gen_random_uuid() primary key,
+  company_id uuid references companies(id) on delete cascade,
+  category_id uuid references categories(id) on delete cascade not null,
+  created_at timestamptz default now()
+);
+
+create table if not exists bank_pl_exclusions (
+  id uuid default gen_random_uuid() primary key,
+  company_id uuid references companies(id) on delete cascade,
+  transaction_id uuid references transactions(id) on delete cascade not null,
+  created_at timestamptz default now()
+);
+
+alter table bank_pl_categories enable row level security;
+alter table bank_pl_exclusions enable row level security;
+
+create policy "authenticated read bank_pl_categories" on bank_pl_categories for select to authenticated using (true);
+create policy "owner write bank_pl_categories" on bank_pl_categories for all to authenticated using (get_my_role() = 'owner');
+create policy "authenticated read bank_pl_exclusions" on bank_pl_exclusions for select to authenticated using (true);
+create policy "owner write bank_pl_exclusions" on bank_pl_exclusions for all to authenticated using (get_my_role() = 'owner');
 create index if not exists idx_monthly_balances_company on monthly_balances(company_id, year, month);
 
 -- ============================================================
@@ -160,6 +183,12 @@ insert into categories (name, type, sort_order) values
   ('Travel & Auto', 'expense', 22),
   ('Payroll / Labor', 'expense', 23),
   ('Mortgage / Loan Interest', 'expense', 24),
-  ('Depreciation', 'expense', 25),
+  ('Loan Service (Interest)', 'expense', 24),
+  ('Loan Service (Principal)', 'expense', 25),
+  ('Depreciation', 'expense', 26),
+  ('Building Improvement', 'expense', 27),
+  ('Payroll Taxes', 'expense', 23),
+  ('Legal Fees', 'expense', 18),
+  ('Paid to TolSpain IV', 'expense', 99),
   ('Other Expense', 'expense', 99)
 on conflict (name) do nothing;
