@@ -471,10 +471,10 @@ function PLTable({ pl, title, showPct }) {
               {pl.expenses.map(([name, amt]) => (
                 <div key={name} className="flex justify-between items-center text-sm gap-4">
                   <span className="text-slate-700 flex-1">{name}</span>
+                  <span className="font-mono text-red-600">{formatCurrency(amt)}</span>
                   {showPct && (
                     <span className="font-mono text-slate-400 text-xs w-12 text-right">{pct(amt)}</span>
                   )}
-                  <span className="font-mono text-red-600">{formatCurrency(amt)}</span>
                 </div>
               ))}
               {pl.expenses.length === 0 && <p className="text-sm text-slate-400">No expenses recorded</p>}
@@ -575,8 +575,8 @@ function MonthlyPLTable({ monthlyData, months, monthFrom, monthTo, year, showPct
                       <td key={k} className="px-4 py-2 text-right font-mono text-red-500">
                         {row ? (
                           <span className="inline-flex items-center gap-1.5 justify-end">
-                            {pct && <span className="text-slate-400 text-xs">{pct}</span>}
                             {formatCurrency(row[1])}
+                            {pct && <span className="text-slate-400 text-xs">{pct}</span>}
                           </span>
                         ) : '—'}
                       </td>
@@ -584,12 +584,12 @@ function MonthlyPLTable({ monthlyData, months, monthFrom, monthTo, year, showPct
                   })}
                   <td className="px-4 py-2 text-right font-mono font-semibold text-red-500">
                     <span className="inline-flex items-center gap-1.5 justify-end">
+                      {formatCurrency(total)}
                       {showPct && keys.reduce((s, k) => s + monthlyData[k].totalIncome, 0) > 0 && (
                         <span className="text-slate-400 text-xs">
                           {(Math.abs(total) / keys.reduce((s, k) => s + monthlyData[k].totalIncome, 0) * 100).toFixed(1)}%
                         </span>
                       )}
-                      {formatCurrency(total)}
                     </span>
                   </td>
                 </tr>

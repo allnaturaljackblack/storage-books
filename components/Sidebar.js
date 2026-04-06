@@ -102,7 +102,7 @@ export default function Sidebar() {
   }
 
   return (
-    <div className="w-56 bg-slate-900 flex flex-col h-full flex-shrink-0">
+    <div className="w-56 bg-slate-900 flex flex-col h-full flex-shrink-0 print:hidden">
       {/* Logo */}
       <div className="px-4 py-5 border-b border-slate-800">
         <h1 className="text-white font-bold text-base tracking-tight">Storage Books</h1>

@@ -12,3 +12,28 @@ body {
 }
 
 /* Prevent dark mode from overriding our financial app styles */
+
+@media print {
+  /* Hide UI chrome */
+  .print-hide {
+    display: none !important;
+  }
+
+  /* Reset layout so content fills the page */
+  body, html {
+    height: auto !important;
+    overflow: visible !important;
+  }
+
+  main {
+    overflow: visible !important;
+  }
+
+  /* Print area fills full width */
+  .print-area {
+    width: 100% !important;
+    max-width: 100% !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+}
