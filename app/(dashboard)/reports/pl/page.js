@@ -24,6 +24,7 @@ export default function PLPage() {
   const [monthTo, setMonthTo] = useState(12)
   const [view, setView] = useState('monthly')
   const [showByCompany, setShowByCompany] = useState(false)
+  const [showPct, setShowPct] = useState(false)
 
   // Bank P&L state
   const [bankEntity, setBankEntity] = useState('portfolio')
@@ -268,6 +269,10 @@ export default function PLPage() {
             Side-by-Side
           </button>
         )}
+        <button onClick={() => setShowPct(v => !v)}
+          className={`px-3 py-1.5 text-sm rounded-lg border ${showPct ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
+          % of Revenue
+        </button>
       </div>
 
       {/* ── Bank P&L Mode ───────────────────────────────────────── */}
@@ -390,7 +395,7 @@ export default function PLPage() {
 
           {/* Right: Bank P&L preview */}
           <div className="flex-1">
-            <PLTable pl={bankPL}
+            <PLTable pl={bankPL} showPct={showPct}
               title={bankEntity === 'portfolio' ? 'Portfolio — Bank P&L' : (companies.find(c => c.id === bankEntity)?.name + ' — Bank P&L')} />
             {bankIncludedCats.size === 0 && (
               <p className="text-sm text-slate-400 mt-4 text-center">
@@ -403,21 +408,26 @@ export default function PLPage() {
       ) : showByCompany && byCompany ? (
         <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${byCompany.length}, 1fr)` }}>
           {byCompany.map(({ company, pl: coPL }) => (
-            <PLTable key={company.id} pl={coPL} title={company.name} />
+            <PLTable key={company.id} pl={coPL} title={company.name} showPct={showPct} />
           ))}
         </div>
       ) : view === 'monthly' && monthlyData ? (
-        <MonthlyPLTable monthlyData={monthlyData} months={MONTHS} monthFrom={monthFrom} monthTo={monthTo} year={year} />
+        <MonthlyPLTable monthlyData={monthlyData} months={MONTHS} monthFrom={monthFrom} monthTo={monthTo} year={year} showPct={showPct} />
       ) : (
-        <PLTable pl={pl} title={companyFilter === 'all' ? 'Consolidated' : companies.find(c => c.id === companyFilter)?.name} />
+        <PLTable pl={pl} showPct={showPct} title={companyFilter === 'all' ? 'Consolidated' : companies.find(c => c.id === companyFilter)?.name} />
       )}
     </div>
   )
 }
 
-function PLTable({ pl, title }) {
+function PLTable({ pl, title, showPct }) {
   const [showIncome, setShowIncome] = useState(true)
   const [showExpenses, setShowExpenses] = useState(true)
+
+  function pct(amt) {
+    if (!pl.totalIncome || pl.totalIncome === 0) return '—'
+    return (Math.abs(amt) / pl.totalIncome * 100).toFixed(1) + '%'
+  }
 
   return (
     <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
@@ -435,7 +445,7 @@ function PLTable({ pl, title }) {
           {showIncome && (
             <div className="space-y-1.5">
               {pl.income.map(([name, amt]) => (
-                <div key={name} className="flex justify-between items-center text-sm">
+                <div key={name} className="flex justify-between items-center text-sm gap-4">
                   <span className="text-slate-700">{name}</span>
                   <span className="font-mono text-emerald-600">{formatCurrency(amt)}</span>
                 </div>
@@ -459,8 +469,11 @@ function PLTable({ pl, title }) {
           {showExpenses && (
             <div className="space-y-1.5">
               {pl.expenses.map(([name, amt]) => (
-                <div key={name} className="flex justify-between items-center text-sm">
-                  <span className="text-slate-700">{name}</span>
+                <div key={name} className="flex justify-between items-center text-sm gap-4">
+                  <span className="text-slate-700 flex-1">{name}</span>
+                  {showPct && (
+                    <span className="font-mono text-slate-400 text-xs w-12 text-right">{pct(amt)}</span>
+                  )}
                   <span className="font-mono text-red-600">{formatCurrency(amt)}</span>
                 </div>
               ))}
@@ -487,7 +500,7 @@ function PLTable({ pl, title }) {
   )
 }
 
-function MonthlyPLTable({ monthlyData, months, monthFrom, monthTo, year }) {
+function MonthlyPLTable({ monthlyData, months, monthFrom, monthTo, year, showPct }) {
   const [showIncome, setShowIncome] = useState(true)
   const [showExpenses, setShowExpenses] = useState(true)
   const keys = Object.keys(monthlyData)
@@ -554,9 +567,31 @@ function MonthlyPLTable({ monthlyData, months, monthFrom, monthTo, year }) {
                   <td className="px-4 py-2 text-slate-700">{name}</td>
                   {keys.map(k => {
                     const row = monthlyData[k].expenses.find(([n]) => n === name)
-                    return <td key={k} className="px-4 py-2 text-right font-mono text-red-500">{row ? formatCurrency(row[1]) : '—'}</td>
+                    const monthIncome = monthlyData[k].totalIncome
+                    const pct = showPct && row && monthIncome > 0
+                      ? (Math.abs(row[1]) / monthIncome * 100).toFixed(1) + '%'
+                      : null
+                    return (
+                      <td key={k} className="px-4 py-2 text-right font-mono text-red-500">
+                        {row ? (
+                          <span className="inline-flex items-center gap-1.5 justify-end">
+                            {pct && <span className="text-slate-400 text-xs">{pct}</span>}
+                            {formatCurrency(row[1])}
+                          </span>
+                        ) : '—'}
+                      </td>
+                    )
                   })}
-                  <td className="px-4 py-2 text-right font-mono font-semibold text-red-500">{formatCurrency(total)}</td>
+                  <td className="px-4 py-2 text-right font-mono font-semibold text-red-500">
+                    <span className="inline-flex items-center gap-1.5 justify-end">
+                      {showPct && keys.reduce((s, k) => s + monthlyData[k].totalIncome, 0) > 0 && (
+                        <span className="text-slate-400 text-xs">
+                          {(Math.abs(total) / keys.reduce((s, k) => s + monthlyData[k].totalIncome, 0) * 100).toFixed(1)}%
+                        </span>
+                      )}
+                      {formatCurrency(total)}
+                    </span>
+                  </td>
                 </tr>
               )
             })
