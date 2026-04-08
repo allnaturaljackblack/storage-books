@@ -71,8 +71,10 @@ export default function PLPage() {
 
   async function toggleBankCategory(categoryId) {
     const companyId = bankEntity === 'portfolio' ? null : bankEntity
+    const cat = categories.find(c => c.id === categoryId)
+
     if (bankIncludedCats.has(categoryId)) {
-      // Remove category
+      // Remove category from Bank P&L
       const q = companyId
         ? supabase.from('bank_pl_categories').delete().eq('category_id', categoryId).eq('company_id', companyId)
         : supabase.from('bank_pl_categories').delete().eq('category_id', categoryId).is('company_id', null)
@@ -89,9 +91,23 @@ export default function PLPage() {
         setBankExcludedTxs(prev => { const n = new Set(prev); ids.forEach(id => n.delete(id)); return n })
       }
     } else {
-      // Add category
+      // Add category to Bank P&L
       await supabase.from('bank_pl_categories').insert({ category_id: categoryId, company_id: companyId })
       setBankIncludedCats(prev => new Set([...prev, categoryId]))
+
+      // Auto-tag expense transactions in this category as opex
+      if (cat?.type === 'expense') {
+        const txToTag = transactions.filter(t =>
+          t.category_id === categoryId &&
+          t.amount < 0 &&
+          (!companyId || t.company_id === companyId)
+        )
+        if (txToTag.length > 0) {
+          const ids = txToTag.map(t => t.id)
+          await supabase.from('transactions').update({ expense_type: 'opex' }).in('id', ids)
+          setTransactions(prev => prev.map(t => ids.includes(t.id) ? { ...t, expense_type: 'opex' } : t))
+        }
+      }
     }
   }
 
