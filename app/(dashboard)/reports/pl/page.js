@@ -184,7 +184,7 @@ export default function PLPage() {
 
   return (
     <div className="p-8">
-      <div className="flex items-center justify-between mb-6">
+      <div className="print-hide flex items-center justify-between mb-6">
         <div>
           <h1 className="text-xl font-bold text-slate-900">P&L Statement</h1>
           <p className="text-sm text-slate-500 mt-0.5">{modeLabel[mode]}</p>
@@ -198,7 +198,7 @@ export default function PLPage() {
       </div>
 
       {/* Controls */}
-      <div className="bg-white rounded-xl border border-slate-200 p-4 mb-6 flex flex-wrap gap-3 items-end">
+      <div className="print-hide bg-white rounded-xl border border-slate-200 p-4 mb-6 flex flex-wrap gap-3 items-end">
         {mode !== 'bank_pl' && (
           <div>
             <label className="block text-xs font-medium text-slate-500 mb-1">Entity</label>
@@ -275,12 +275,13 @@ export default function PLPage() {
         </button>
       </div>
 
-      {/* ── Bank P&L Mode ───────────────────────────────────────── */}
+      {/* ── Statement Output ───────────────────────────────────────── */}
+      <div className="print-area">
       {mode === 'bank_pl' ? (
         <div className="flex gap-6 items-start">
 
           {/* Left: Configuration panel */}
-          <div className="w-80 flex-shrink-0 bg-white rounded-xl border border-slate-200 overflow-hidden sticky top-4">
+          <div className="print-hide w-80 flex-shrink-0 bg-white rounded-xl border border-slate-200 overflow-hidden sticky top-4">
             <div className="px-4 py-3 border-b border-slate-100 bg-slate-50">
               <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Configure for</p>
               <select value={bankEntity} onChange={e => setBankEntity(e.target.value)}
@@ -416,6 +417,7 @@ export default function PLPage() {
       ) : (
         <PLTable pl={pl} showPct={showPct} title={companyFilter === 'all' ? 'Consolidated' : companies.find(c => c.id === companyFilter)?.name} />
       )}
+      </div>{/* end print-area */}
     </div>
   )
 }
