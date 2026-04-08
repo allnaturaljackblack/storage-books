@@ -80,10 +80,19 @@ export default function PLPage() {
         : supabase.from('bank_pl_categories').delete().eq('category_id', categoryId).is('company_id', null)
       await q
       setBankIncludedCats(prev => { const n = new Set(prev); n.delete(categoryId); return n })
-      // Also remove any exclusions under this category
-      const txInCat = transactions.filter(t => t.category_id === categoryId)
+      // Remove opex tag + any exclusions from all transactions in this category
+      const txInCat = transactions.filter(t =>
+        t.category_id === categoryId &&
+        (!companyId || t.company_id === companyId)
+      )
       if (txInCat.length > 0) {
         const ids = txInCat.map(t => t.id)
+        // Remove opex tag
+        if (cat?.type === 'expense') {
+          await supabase.from('transactions').update({ expense_type: null }).in('id', ids)
+          setTransactions(prev => prev.map(t => ids.includes(t.id) ? { ...t, expense_type: null } : t))
+        }
+        // Remove exclusions
         const eq = companyId
           ? supabase.from('bank_pl_exclusions').delete().in('transaction_id', ids).eq('company_id', companyId)
           : supabase.from('bank_pl_exclusions').delete().in('transaction_id', ids).is('company_id', null)
@@ -114,15 +123,19 @@ export default function PLPage() {
   async function toggleBankTransaction(txId) {
     const companyId = bankEntity === 'portfolio' ? null : bankEntity
     if (bankExcludedTxs.has(txId)) {
-      // Re-include: remove from exclusions
+      // Re-include: remove from exclusions + restore opex tag
       const q = companyId
         ? supabase.from('bank_pl_exclusions').delete().eq('transaction_id', txId).eq('company_id', companyId)
         : supabase.from('bank_pl_exclusions').delete().eq('transaction_id', txId).is('company_id', null)
       await q
+      await supabase.from('transactions').update({ expense_type: 'opex' }).eq('id', txId)
+      setTransactions(prev => prev.map(t => t.id === txId ? { ...t, expense_type: 'opex' } : t))
       setBankExcludedTxs(prev => { const n = new Set(prev); n.delete(txId); return n })
     } else {
-      // Exclude
+      // Exclude: add to exclusions + remove opex tag
       await supabase.from('bank_pl_exclusions').insert({ transaction_id: txId, company_id: companyId })
+      await supabase.from('transactions').update({ expense_type: null }).eq('id', txId)
+      setTransactions(prev => prev.map(t => t.id === txId ? { ...t, expense_type: null } : t))
       setBankExcludedTxs(prev => new Set([...prev, txId]))
     }
   }
