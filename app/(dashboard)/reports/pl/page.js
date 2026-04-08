@@ -140,6 +140,37 @@ export default function PLPage() {
     }
   }
 
+  async function syncOpexTags() {
+    const companyId = bankEntity === 'portfolio' ? null : bankEntity
+    // Tag all expense transactions whose category is in Bank P&L and not excluded
+    const txToTag = transactions.filter(t =>
+      t.amount < 0 &&
+      bankIncludedCats.has(t.category_id) &&
+      !bankExcludedTxs.has(t.id) &&
+      (!companyId || t.company_id === companyId)
+    )
+    // Untag all expense transactions whose category is NOT in Bank P&L (or are excluded)
+    const txToUntag = transactions.filter(t =>
+      t.amount < 0 &&
+      t.expense_type === 'opex' &&
+      (!companyId || t.company_id === companyId) &&
+      (!bankIncludedCats.has(t.category_id) || bankExcludedTxs.has(t.id))
+    )
+    const tagIds = txToTag.map(t => t.id)
+    const untagIds = txToUntag.map(t => t.id)
+    if (tagIds.length > 0) {
+      await supabase.from('transactions').update({ expense_type: 'opex' }).in('id', tagIds)
+    }
+    if (untagIds.length > 0) {
+      await supabase.from('transactions').update({ expense_type: null }).in('id', untagIds)
+    }
+    setTransactions(prev => prev.map(t => {
+      if (tagIds.includes(t.id)) return { ...t, expense_type: 'opex' }
+      if (untagIds.includes(t.id)) return { ...t, expense_type: null }
+      return t
+    }))
+  }
+
   function toggleExpandBankCat(catId) {
     setExpandedBankCats(prev => {
       const n = new Set(prev)
@@ -318,10 +349,18 @@ export default function PLPage() {
                 <option value="portfolio">Portfolio (All Entities)</option>
                 {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
-              <p className="text-xs text-slate-400 mt-2">
-                {bankIncludedCats.size} categor{bankIncludedCats.size === 1 ? 'y' : 'ies'} selected
-                {bankExcludedTxs.size > 0 && `, ${bankExcludedTxs.size} transaction${bankExcludedTxs.size === 1 ? '' : 's'} excluded`}
-              </p>
+              <div className="flex items-center justify-between mt-2">
+                <p className="text-xs text-slate-400">
+                  {bankIncludedCats.size} categor{bankIncludedCats.size === 1 ? 'y' : 'ies'} selected
+                  {bankExcludedTxs.size > 0 && `, ${bankExcludedTxs.size} excluded`}
+                </p>
+                {bankIncludedCats.size > 0 && (
+                  <button onClick={syncOpexTags}
+                    className="text-xs text-slate-500 hover:text-slate-900 border border-slate-200 rounded px-2 py-0.5 hover:bg-slate-50">
+                    Sync OpEx Tags
+                  </button>
+                )}
+              </div>
             </div>
 
             <div className="p-4 space-y-4 max-h-[70vh] overflow-y-auto">
