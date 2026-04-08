@@ -61,6 +61,53 @@ export default function TransactionsPage() {
     setTransactions(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t))
   }
 
+  async function updateExpenseType(tx, newType) {
+    await updateTransaction(tx.id, { expense_type: newType || null })
+
+    // Sync with Bank P&L
+    const companyId = tx.company_id || null
+
+    if (newType === 'opex' && tx.category_id) {
+      // Ensure category is in bank_pl_categories for this entity
+      const { data: existing } = await supabase
+        .from('bank_pl_categories')
+        .select('id')
+        .eq('category_id', tx.category_id)
+        .eq('company_id', companyId)
+        .maybeSingle()
+      if (!existing) {
+        await supabase.from('bank_pl_categories').insert({ category_id: tx.category_id, company_id: companyId })
+      }
+      // Remove from exclusions if it was excluded
+      await supabase.from('bank_pl_exclusions')
+        .delete()
+        .eq('transaction_id', tx.id)
+        .eq('company_id', companyId)
+
+    } else if (!newType || newType !== 'opex') {
+      // If category is in bank_pl for this entity, add transaction to exclusions
+      if (tx.category_id) {
+        const { data: inBankPL } = await supabase
+          .from('bank_pl_categories')
+          .select('id')
+          .eq('category_id', tx.category_id)
+          .eq('company_id', companyId)
+          .maybeSingle()
+        if (inBankPL) {
+          const { data: alreadyExcluded } = await supabase
+            .from('bank_pl_exclusions')
+            .select('id')
+            .eq('transaction_id', tx.id)
+            .eq('company_id', companyId)
+            .maybeSingle()
+          if (!alreadyExcluded) {
+            await supabase.from('bank_pl_exclusions').insert({ transaction_id: tx.id, company_id: companyId })
+          }
+        }
+      }
+    }
+  }
+
   async function deleteTransaction(id) {
     if (!confirm('Delete this transaction?')) return
     await supabase.from('transactions').delete().eq('id', id)
@@ -111,6 +158,15 @@ export default function TransactionsPage() {
     if (bulkExpenseType) updates.expense_type = bulkExpenseType
     await supabase.from('transactions').update(updates).in('id', ids)
     setTransactions(prev => prev.map(t => ids.includes(t.id) ? { ...t, ...updates } : t))
+
+    // Sync Bank P&L if bulk-applying an expense type
+    if (bulkExpenseType) {
+      const selectedTxs = transactions.filter(t => ids.includes(t.id))
+      for (const tx of selectedTxs) {
+        await updateExpenseType({ ...tx, expense_type: tx.expense_type }, bulkExpenseType)
+      }
+    }
+
     setSelected(new Set())
     setBulkCategory('')
     setBulkExpenseType('')
@@ -324,7 +380,7 @@ export default function TransactionsPage() {
                     </td>
                     <td className="px-4 py-2.5">
                       {isOwner && t.amount < 0 ? (
-                        <select value={t.expense_type || ''} onChange={e => updateTransaction(t.id, { expense_type: e.target.value || null })}
+                        <select value={t.expense_type || ''} onChange={e => updateExpenseType(t, e.target.value || null)}
                           className="border border-slate-200 rounded px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-900">
                           <option value="">— Type —</option>
                           <option value="opex">OpEx</option>
