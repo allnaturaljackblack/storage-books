@@ -25,19 +25,28 @@ export default function SettingsPage() {
   const [renamingSourceId, setRenamingSourceId] = useState(null)
   const [renameValue, setRenameValue] = useState('')
 
+  // Report branding
+  const [reportName, setReportName] = useState('')
+  const [reportSubtitle, setReportSubtitle] = useState('')
+  const [logoUrl, setLogoUrl] = useState('')
+  const [brandingSaved, setBrandingSaved] = useState(false)
+  const [logoUploading, setLogoUploading] = useState(false)
+  const [logoError, setLogoError] = useState(null)
+
   const supabase = createClient()
 
   useEffect(() => { loadAll() }, [])
 
   async function loadAll() {
     setLoading(true)
-    const [{ data: co }, { data: cat }, { data: rul }, { data: src }, { data: role }, { data: { user } }] = await Promise.all([
+    const [{ data: co }, { data: cat }, { data: rul }, { data: src }, { data: role }, { data: { user } }, { data: branding }] = await Promise.all([
       supabase.from('companies').select('*').order('name'),
       supabase.from('categories').select('*').order('sort_order'),
       supabase.from('categorization_rules').select('*, categories(name)').order('created_at'),
       supabase.from('sources').select('*').order('name'),
       supabase.from('user_roles').select('role').single(),
       supabase.auth.getUser(),
+      supabase.from('report_settings').select('*'),
     ])
     setCompanies(co || [])
     setCategories(cat || [])
@@ -45,6 +54,12 @@ export default function SettingsPage() {
     setSources(src || [])
     setUserRole(role?.role || null)
     setCurrentUser(user)
+    if (branding) {
+      const kv = Object.fromEntries(branding.map(r => [r.key, r.value]))
+      setReportName(kv.report_name || '')
+      setReportSubtitle(kv.report_subtitle || '')
+      setLogoUrl(kv.logo_url || '')
+    }
     setLoading(false)
   }
 
@@ -86,6 +101,56 @@ export default function SettingsPage() {
     if (!confirm(`Delete source "${name}"?${warning}`)) return
     await supabase.from('sources').delete().eq('id', id)
     await loadAll()
+  }
+
+  // ── Report Branding ──────────────────────────────────────────────
+  async function saveBrandingField(key, value) {
+    const { error } = await supabase
+      .from('report_settings')
+      .upsert({ key, value }, { onConflict: 'key' })
+    if (error) throw error
+  }
+
+  async function saveBranding(e) {
+    e.preventDefault()
+    try {
+      await Promise.all([
+        saveBrandingField('report_name', reportName),
+        saveBrandingField('report_subtitle', reportSubtitle),
+      ])
+      setBrandingSaved(true)
+      setTimeout(() => setBrandingSaved(false), 2500)
+    } catch (err) {
+      alert('Error saving: ' + err.message)
+    }
+  }
+
+  async function uploadLogo(e) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setLogoUploading(true)
+    setLogoError(null)
+    const ext = file.name.split('.').pop()
+    const path = `logo.${ext}`
+    const { error: uploadError } = await supabase.storage
+      .from('report-assets')
+      .upload(path, file, { upsert: true, contentType: file.type })
+    if (uploadError) {
+      setLogoError(uploadError.message)
+      setLogoUploading(false)
+      return
+    }
+    const { data: { publicUrl } } = supabase.storage.from('report-assets').getPublicUrl(path)
+    // Append cache-bust to force image refresh
+    const urlWithBust = `${publicUrl}?t=${Date.now()}`
+    await saveBrandingField('logo_url', publicUrl)
+    setLogoUrl(urlWithBust)
+    setLogoUploading(false)
+  }
+
+  async function removeLogo() {
+    await saveBrandingField('logo_url', '')
+    setLogoUrl('')
   }
 
   const isOwner = userRole === 'owner'
@@ -495,6 +560,80 @@ export default function SettingsPage() {
               <button type="submit" className="bg-slate-900 text-white text-sm px-4 py-1.5 rounded-lg hover:bg-slate-800">Add</button>
             </form>
           )}
+        </div>
+      </section>
+
+      {/* Report Branding */}
+      <section className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100">
+          <h2 className="font-semibold text-slate-900">Report Branding</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Logo and name shown on printed P&L and Balance Sheet exports</p>
+        </div>
+        <div className="p-5 space-y-5">
+          {/* Logo */}
+          <div>
+            <label className="block text-xs font-medium text-slate-500 mb-2">Company Logo</label>
+            <div className="flex items-start gap-4">
+              {logoUrl ? (
+                <div className="relative flex-shrink-0">
+                  <img src={logoUrl} alt="Logo preview" className="h-16 w-auto object-contain border border-slate-200 rounded-lg p-1 bg-white" />
+                  <button
+                    onClick={removeLogo}
+                    className="absolute -top-1.5 -right-1.5 bg-white border border-slate-200 rounded-full w-5 h-5 flex items-center justify-center text-slate-400 hover:text-red-500 text-xs leading-none"
+                    title="Remove logo"
+                  >
+                    ×
+                  </button>
+                </div>
+              ) : (
+                <div className="h-16 w-28 border-2 border-dashed border-slate-200 rounded-lg flex items-center justify-center flex-shrink-0">
+                  <span className="text-xs text-slate-400">No logo</span>
+                </div>
+              )}
+              <div className="space-y-1.5">
+                <label className="block">
+                  <span className="inline-flex items-center gap-2 bg-slate-900 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800 cursor-pointer">
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                    </svg>
+                    {logoUrl ? 'Replace logo' : 'Upload logo'}
+                  </span>
+                  <input type="file" accept="image/*" onChange={uploadLogo} className="sr-only" disabled={logoUploading} />
+                </label>
+                {logoUploading && <p className="text-xs text-slate-400">Uploading...</p>}
+                {logoError && <p className="text-xs text-red-500">{logoError}</p>}
+                <p className="text-xs text-slate-400">PNG, JPG, or SVG. Recommended height: 80–160px.</p>
+              </div>
+            </div>
+          </div>
+
+          {/* Name + Subtitle */}
+          <form onSubmit={saveBranding} className="space-y-3">
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Company / Report Name</label>
+              <input
+                value={reportName}
+                onChange={e => setReportName(e.target.value)}
+                placeholder="e.g. Sunshine Storage Holdings"
+                className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1">Subtitle (optional)</label>
+              <input
+                value={reportSubtitle}
+                onChange={e => setReportSubtitle(e.target.value)}
+                placeholder="e.g. Confidential — For Internal Use Only"
+                className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
+              />
+            </div>
+            <div className="flex items-center gap-3">
+              <button type="submit" className="bg-slate-900 text-white text-sm px-4 py-1.5 rounded-lg hover:bg-slate-800">
+                Save Branding
+              </button>
+              {brandingSaved && <span className="text-xs text-emerald-600 font-medium">Saved</span>}
+            </div>
+          </form>
         </div>
       </section>
 

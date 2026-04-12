@@ -2,6 +2,7 @@
 import { useState, useEffect, useRef } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { formatCurrency } from '@/lib/reports/pl'
+import PrintHeader from '@/components/PrintHeader'
 
 export default function BalanceSheetPage() {
   const [entries, setEntries] = useState([])
@@ -11,6 +12,7 @@ export default function BalanceSheetPage() {
   const [asOfDate, setAsOfDate] = useState(new Date().toISOString().slice(0, 10))
   const [loading, setLoading] = useState(true)
   const [userRole, setUserRole] = useState(null)
+  const [reportSettings, setReportSettings] = useState({})
 
   // Entry form
   const [form, setForm] = useState({ name: '', type: 'asset', amount: '', notes: '' })
@@ -30,16 +32,18 @@ export default function BalanceSheetPage() {
 
   async function loadAll() {
     setLoading(true)
-    const [{ data: ent }, { data: co }, { data: role }, { data: snaps }] = await Promise.all([
+    const [{ data: ent }, { data: co }, { data: role }, { data: snaps }, { data: branding }] = await Promise.all([
       supabase.from('balance_sheet_entries').select('*').order('created_at'),
       supabase.from('companies').select('*').order('name'),
       supabase.from('user_roles').select('role').single(),
       supabase.from('balance_sheet_snapshots').select('*').order('created_at', { ascending: false }),
+      supabase.from('report_settings').select('*'),
     ])
     setEntries(ent || [])
     setCompanies(co || [])
     setUserRole(role?.role || 'viewer')
     setSnapshots(snaps || [])
+    if (branding) setReportSettings(Object.fromEntries(branding.map(r => [r.key, r.value])))
     setLoading(false)
   }
 
@@ -132,6 +136,13 @@ export default function BalanceSheetPage() {
           <button onClick={() => window.print()} className="px-4 py-2 text-sm border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50">Print / Save PDF</button>
         </div>
         <div className="print-area bg-white rounded-xl border border-slate-200 overflow-hidden">
+          <PrintHeader
+            logoUrl={reportSettings.logo_url}
+            reportName={reportSettings.report_name}
+            subtitle={reportSettings.report_subtitle}
+            title="Balance Sheet"
+            dateRange={`As of ${snap.as_of_date}`}
+          />
           <div className="px-6 py-4 border-b border-slate-100">
             <h2 className="font-semibold text-slate-900">{snap.label}</h2>
             <p className="text-xs text-slate-400 mt-0.5">Balance Sheet — as of {snap.as_of_date}</p>
@@ -253,6 +264,13 @@ export default function BalanceSheetPage() {
 
       {/* Live Balance Sheet */}
       <div className="print-area bg-white rounded-xl border border-slate-200 overflow-hidden mb-8">
+        <PrintHeader
+          logoUrl={reportSettings.logo_url}
+          reportName={reportSettings.report_name}
+          subtitle={reportSettings.report_subtitle}
+          title="Balance Sheet"
+          dateRange={`As of ${asOfDate}`}
+        />
         <div className="px-6 py-4 border-b border-slate-100">
           <h2 className="font-semibold text-slate-900">Balance Sheet — as of {asOfDate}</h2>
           <p className="text-xs text-slate-400 mt-0.5">

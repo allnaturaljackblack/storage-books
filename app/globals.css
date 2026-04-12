@@ -13,10 +13,20 @@ body {
 
 /* Prevent dark mode from overriding our financial app styles */
 
+/* Print-only elements (hidden in browser, visible in print) */
+.print-only {
+  display: none;
+}
+
 @media print {
   /* Hide UI chrome */
   .print-hide {
     display: none !important;
+  }
+
+  /* Show print-only elements */
+  .print-only {
+    display: block !important;
   }
 
   /* Reset layout so content fills the page */

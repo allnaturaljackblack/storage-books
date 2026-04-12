@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { filterTransactions, applyExpenseFilter, buildPL, formatCurrency } from '@/lib/reports/pl'
+import PrintHeader from '@/components/PrintHeader'
 
 const CURRENT_YEAR = new Date().getFullYear()
 const YEARS = [CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR - 2]
@@ -15,6 +16,7 @@ export default function PLPage() {
   const [companies, setCompanies] = useState([])
   const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(true)
+  const [reportSettings, setReportSettings] = useState({})
 
   const [companyFilter, setCompanyFilter] = useState('all')
   const [mode, setMode] = useState('detailed') // detailed | non_detailed | full | bank_pl
@@ -38,14 +40,16 @@ export default function PLPage() {
 
   async function loadAll() {
     setLoading(true)
-    const [{ data: tx }, { data: co }, { data: cat }] = await Promise.all([
+    const [{ data: tx }, { data: co }, { data: cat }, { data: branding }] = await Promise.all([
       supabase.from('transactions').select('*, categories(name, type)').order('date'),
       supabase.from('companies').select('*').order('name'),
       supabase.from('categories').select('*').order('sort_order'),
+      supabase.from('report_settings').select('*'),
     ])
     setTransactions(tx || [])
     setCompanies(co || [])
     setCategories(cat || [])
+    if (branding) setReportSettings(Object.fromEntries(branding.map(r => [r.key, r.value])))
     setLoading(false)
   }
 
@@ -337,6 +341,13 @@ export default function PLPage() {
 
       {/* ── Statement Output ───────────────────────────────────────── */}
       <div className="print-area">
+      <PrintHeader
+        logoUrl={reportSettings.logo_url}
+        reportName={reportSettings.report_name}
+        subtitle={reportSettings.report_subtitle}
+        title={mode === 'bank_pl' ? 'Bank P&L Statement' : 'Profit & Loss Statement'}
+        dateRange={`${MONTHS[monthFrom - 1]} – ${MONTHS[monthTo - 1]} ${year}`}
+      />
       {mode === 'bank_pl' ? (
         <div className="flex gap-6 items-start">
 

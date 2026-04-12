@@ -192,3 +192,33 @@ insert into categories (name, type, sort_order) values
   ('Paid to TolSpain IV', 'expense', 99),
   ('Other Expense', 'expense', 99)
 on conflict (name) do nothing;
+
+-- ── Report Settings (key/value store for branding) ──────────────────────────
+create table if not exists report_settings (
+  id uuid primary key default gen_random_uuid(),
+  key text not null unique,
+  value text,
+  updated_at timestamptz default now()
+);
+
+-- Enable RLS
+alter table report_settings enable row level security;
+create policy "report_settings_select" on report_settings for select using (true);
+create policy "report_settings_insert" on report_settings for insert with check (true);
+create policy "report_settings_update" on report_settings for update using (true);
+
+-- ── Storage bucket for report assets (logo, etc.) ────────────────────────────
+-- Run this separately in the Supabase dashboard (Storage > New Bucket):
+--   Name: report-assets
+--   Public: true
+-- Or via SQL:
+insert into storage.buckets (id, name, public)
+values ('report-assets', 'report-assets', true)
+on conflict (id) do nothing;
+
+create policy "report_assets_select" on storage.objects
+  for select using (bucket_id = 'report-assets');
+create policy "report_assets_insert" on storage.objects
+  for insert with check (bucket_id = 'report-assets');
+create policy "report_assets_update" on storage.objects
+  for update using (bucket_id = 'report-assets');
