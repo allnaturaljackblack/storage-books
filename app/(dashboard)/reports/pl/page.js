@@ -189,7 +189,7 @@ export default function PLPage() {
     return true
   })
   filtered = filterTransactions(filtered, mode === 'bank_pl' ? 'detailed' : mode)
-  filtered = applyExpenseFilter(filtered, expenseFilter)
+  filtered = applyExpenseFilter(filtered, categories, expenseFilter)
   const pl = buildPL(filtered, categories)
 
   // Bank P&L filtered transactions
@@ -224,7 +224,7 @@ export default function PLPage() {
     return companies.map(co => {
       const coTx = applyExpenseFilter(filterTransactions(
         filtered.filter(t => t.company_id === co.id), mode
-      ), expenseFilter)
+      ), categories, expenseFilter)
       return { company: co, pl: buildPL(coTx, categories) }
     })
   }

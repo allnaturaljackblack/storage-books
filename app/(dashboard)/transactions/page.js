@@ -5,12 +5,12 @@ import ExpenseTypeBadge from '@/components/ExpenseTypeBadge'
 import CommentPanel from '@/components/CommentPanel'
 import SplitModal from '@/components/SplitModal'
 
-const SOURCE_LABELS = { chase: 'Chase', amex: 'Amex', suncoast: 'Suncoast', manual: 'Manual' }
 
 export default function TransactionsPage() {
   const [transactions, setTransactions] = useState([])
   const [companies, setCompanies] = useState([])
   const [categories, setCategories] = useState([])
+  const [sources, setSources] = useState([])
   const [loading, setLoading] = useState(true)
 
   // Filters
@@ -25,6 +25,8 @@ export default function TransactionsPage() {
   const [selected, setSelected] = useState(new Set())
   const [bulkCategory, setBulkCategory] = useState('')
   const [bulkExpenseType, setBulkExpenseType] = useState('')
+  const [bulkSource, setBulkSource] = useState('')
+  const [customBulkSource, setCustomBulkSource] = useState('')
 
   // Edit / comment state
   const [editingId, setEditingId] = useState(null)
@@ -42,15 +44,17 @@ export default function TransactionsPage() {
 
   async function loadAll() {
     setLoading(true)
-    const [{ data: tx }, { data: co }, { data: cat }, { data: roleData }] = await Promise.all([
+    const [{ data: tx }, { data: co }, { data: cat }, { data: src }, { data: roleData }] = await Promise.all([
       supabase.from('transactions').select('*, categories(name, type)').order('date', { ascending: false }).limit(1000),
       supabase.from('companies').select('*').order('name'),
       supabase.from('categories').select('*').order('sort_order'),
+      supabase.from('sources').select('*').order('name'),
       supabase.from('user_roles').select('role').single(),
     ])
     setTransactions(tx || [])
     setCompanies(co || [])
     setCategories(cat || [])
+    setSources(src || [])
     setUserRole(roleData?.role || 'viewer')
     setSelected(new Set())
     setLoading(false)
@@ -151,13 +155,16 @@ export default function TransactionsPage() {
   }
 
   async function bulkApply() {
-    if (selected.size === 0 || (!bulkCategory && !bulkExpenseType)) return
+    const resolvedSource = bulkSource === '__custom__' ? customBulkSource.trim() : bulkSource
+    if (selected.size === 0 || (!bulkCategory && !bulkExpenseType && !resolvedSource)) return
     const ids = [...selected]
     const updates = {}
     if (bulkCategory) updates.category_id = bulkCategory
     if (bulkExpenseType) updates.expense_type = bulkExpenseType
-    await supabase.from('transactions').update(updates).in('id', ids)
-    setTransactions(prev => prev.map(t => ids.includes(t.id) ? { ...t, ...updates } : t))
+    if (resolvedSource) updates.source = resolvedSource
+
+    const { error } = await supabase.from('transactions').update(updates).in('id', ids)
+    if (error) { alert('Error applying changes: ' + error.message); return }
 
     // Sync Bank P&L if bulk-applying an expense type
     if (bulkExpenseType) {
@@ -170,6 +177,9 @@ export default function TransactionsPage() {
     setSelected(new Set())
     setBulkCategory('')
     setBulkExpenseType('')
+    setBulkSource('')
+    setCustomBulkSource('')
+    await loadAll()
   }
 
   async function saveNewTransaction() {
@@ -210,6 +220,12 @@ export default function TransactionsPage() {
   const expenseCategories = categories.filter(c => c.type === 'expense')
   const allSelected = filtered.length > 0 && filtered.every(t => selected.has(t.id))
 
+  // Sources from DB — managed in Settings
+  const allSources = sources.map(s => s.name)
+
+  const resolvedBulkSource = bulkSource === '__custom__' ? customBulkSource.trim() : bulkSource
+  const canApplyBulk = selected.size > 0 && (!!bulkCategory || !!bulkExpenseType || !!resolvedBulkSource)
+
   return (
     <div className="p-8">
       <div className="flex items-center justify-between mb-6">
@@ -242,7 +258,7 @@ export default function TransactionsPage() {
         <select value={sourceFilter} onChange={e => setSourceFilter(e.target.value)}
           className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900">
           <option value="all">All Sources</option>
-          {Object.entries(SOURCE_LABELS).map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+          {allSources.map(s => <option key={s} value={s}>{s}</option>)}
         </select>
         <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}
           className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900">
@@ -302,7 +318,26 @@ export default function TransactionsPage() {
                 <option value="capex">CapEx</option>
                 <option value="owner_addback">Add-Back</option>
               </select>
-              <button onClick={bulkApply} disabled={!bulkCategory && !bulkExpenseType}
+
+              {/* Bulk source */}
+              <select value={bulkSource} onChange={e => { setBulkSource(e.target.value); setCustomBulkSource('') }}
+                className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-900">
+                <option value="">Set source...</option>
+                {allSources.map(s => <option key={s} value={s}>{s}</option>)}
+                <option value="__custom__">+ New source...</option>
+              </select>
+              {bulkSource === '__custom__' && (
+                <input
+                  type="text"
+                  value={customBulkSource}
+                  onChange={e => setCustomBulkSource(e.target.value)}
+                  placeholder="Enter source name"
+                  autoFocus
+                  className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-900 w-36"
+                />
+              )}
+
+              <button onClick={bulkApply} disabled={!canApplyBulk}
                 className="text-xs px-3 py-1.5 bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-40">
                 Apply
               </button>
@@ -393,8 +428,8 @@ export default function TransactionsPage() {
                       )}
                     </td>
                     <td className="px-4 py-2.5">
-                      <span className="text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded">
-                        {SOURCE_LABELS[t.source] || t.source}
+                      <span className="text-xs text-slate-400 bg-slate-100 px-1.5 py-0.5 rounded capitalize">
+                        {t.source || '—'}
                       </span>
                     </td>
                     <td className="px-4 py-2.5 text-right">
@@ -538,11 +573,18 @@ export default function TransactionsPage() {
                 <label className="block text-xs font-medium text-slate-500 mb-1">Source</label>
                 <select value={newTx.source} onChange={e => setNewTx(p => ({ ...p, source: e.target.value }))}
                   className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900">
-                  <option value="manual">Manual</option>
-                  <option value="chase">Chase</option>
-                  <option value="suncoast">Suncoast</option>
-                  <option value="amex">Amex</option>
+                  {allSources.map(s => <option key={s} value={s}>{s}</option>)}
+                  <option value="__custom__">+ New source...</option>
                 </select>
+                {newTx.source === '__custom__' && (
+                  <input
+                    type="text"
+                    placeholder="Enter source name"
+                    autoFocus
+                    onChange={e => setNewTx(p => ({ ...p, source: e.target.value }))}
+                    className="w-full mt-2 border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
+                  />
+                )}
               </div>
             </div>
 

@@ -14,7 +14,8 @@ import CategoryCombobox from '@/components/CategoryCombobox'
 const PARSERS = {
   chase: parseChase,
   amex: parseAmex,
-  suncoast: parseSuncoast,
+  suncoast_checking: (rows) => parseSuncoast(rows).map(r => ({ ...r, source: 'Suncoast Checking' })),
+  suncoast_savings: (rows) => parseSuncoast(rows).map(r => ({ ...r, source: 'Suncoast Savings' })),
   googlesheet: (rows, categories, sheetType) => parseGoogleSheet(rows, categories, sheetType),
   easystorage: (rows) => parseEasyStorage(rows),
 }
@@ -22,7 +23,8 @@ const PARSERS = {
 const SOURCE_LABELS = {
   chase: 'Chase Bank',
   amex: 'American Express',
-  suncoast: 'Suncoast Credit Union',
+  suncoast_checking: 'Suncoast Checking',
+  suncoast_savings: 'Suncoast Savings',
   googlesheet: 'Google Sheet',
   easystorage: 'Easy Storage Solutions',
 }
@@ -32,7 +34,7 @@ export default function ImportPage() {
   const [categories, setCategories] = useState([])
   const [rules, setRules] = useState([])
   const [companyId, setCompanyId] = useState('')
-  const [source, setSource] = useState('chase')
+  const [source, setSource] = useState('suncoast_checking')
   const [sheetType, setSheetType] = useState('bank') // 'bank' | 'credit_card'
   const [rows, setRows] = useState([])
   const [step, setStep] = useState(1)

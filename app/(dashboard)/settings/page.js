@@ -9,6 +9,7 @@ export default function SettingsPage() {
   const [companies, setCompanies] = useState([])
   const [categories, setCategories] = useState([])
   const [rules, setRules] = useState([])
+  const [sources, setSources] = useState([])
   const [loading, setLoading] = useState(true)
   const [userRole, setUserRole] = useState(null)
   const [currentUser, setCurrentUser] = useState(null)
@@ -19,25 +20,72 @@ export default function SettingsPage() {
   const [editingRuleId, setEditingRuleId] = useState(null)
   const [editingRule, setEditingRule] = useState(null)
 
+  // Sources state
+  const [newSource, setNewSource] = useState('')
+  const [renamingSourceId, setRenamingSourceId] = useState(null)
+  const [renameValue, setRenameValue] = useState('')
+
   const supabase = createClient()
 
   useEffect(() => { loadAll() }, [])
 
   async function loadAll() {
     setLoading(true)
-    const [{ data: co }, { data: cat }, { data: rul }, { data: role }, { data: { user } }] = await Promise.all([
+    const [{ data: co }, { data: cat }, { data: rul }, { data: src }, { data: role }, { data: { user } }] = await Promise.all([
       supabase.from('companies').select('*').order('name'),
       supabase.from('categories').select('*').order('sort_order'),
       supabase.from('categorization_rules').select('*, categories(name)').order('created_at'),
+      supabase.from('sources').select('*').order('name'),
       supabase.from('user_roles').select('role').single(),
       supabase.auth.getUser(),
     ])
     setCompanies(co || [])
     setCategories(cat || [])
     setRules(rul || [])
+    setSources(src || [])
     setUserRole(role?.role || null)
     setCurrentUser(user)
     setLoading(false)
+  }
+
+  // ── Sources ──────────────────────────────────────────────────────
+  async function addSource(e) {
+    e.preventDefault()
+    if (!newSource.trim()) return
+    const { error } = await supabase.from('sources').insert({ name: newSource.trim() })
+    if (error) { alert('Error: ' + error.message); return }
+    setNewSource('')
+    await loadAll()
+  }
+
+  async function renameSource(id, oldName) {
+    const trimmed = renameValue.trim()
+    if (!trimmed || trimmed === oldName) { setRenamingSourceId(null); return }
+    // Update source record
+    const { error } = await supabase.from('sources').update({ name: trimmed }).eq('id', id)
+    if (error) { alert('Error: ' + error.message); return }
+    // Cascade rename to transactions and accounts
+    await Promise.all([
+      supabase.from('transactions').update({ source: trimmed }).eq('source', oldName),
+      supabase.from('accounts').update({ source: trimmed }).eq('source', oldName),
+    ])
+    setRenamingSourceId(null)
+    await loadAll()
+  }
+
+  async function deleteSource(id, name) {
+    // Check if in use
+    const [{ count: txCount }, { count: accCount }] = await Promise.all([
+      supabase.from('transactions').select('id', { count: 'exact', head: true }).eq('source', name),
+      supabase.from('accounts').select('id', { count: 'exact', head: true }).eq('source', name),
+    ])
+    const total = (txCount || 0) + (accCount || 0)
+    const warning = total > 0
+      ? `\n\nWarning: ${txCount || 0} transaction(s) and ${accCount || 0} account(s) use this source. They will keep the source name but it won't appear in dropdowns.`
+      : ''
+    if (!confirm(`Delete source "${name}"?${warning}`)) return
+    await supabase.from('sources').delete().eq('id', id)
+    await loadAll()
   }
 
   const isOwner = userRole === 'owner'
@@ -162,6 +210,65 @@ export default function SettingsPage() {
               <input value={newCompany} onChange={e => setNewCompany(e.target.value)} placeholder="e.g. Sunshine Storage LLC"
                 className="flex-1 border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900" />
               <button type="submit" className="bg-slate-900 text-white text-sm px-4 py-1.5 rounded-lg hover:bg-slate-800">Add</button>
+            </form>
+          )}
+        </div>
+      </section>
+
+      {/* Sources */}
+      <section className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100">
+          <h2 className="font-semibold text-slate-900">Transaction Sources</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Bank and credit card sources used across transactions, imports, and account reconciliation</p>
+        </div>
+        <div className="p-5 space-y-2">
+          {sources.length === 0 && <p className="text-sm text-slate-400">No sources yet.</p>}
+          {sources.map(s => (
+            <div key={s.id} className="flex items-center justify-between py-1">
+              {renamingSourceId === s.id ? (
+                <input
+                  autoFocus
+                  value={renameValue}
+                  onChange={e => setRenameValue(e.target.value)}
+                  onBlur={() => renameSource(s.id, s.name)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') renameSource(s.id, s.name)
+                    if (e.key === 'Escape') setRenamingSourceId(null)
+                  }}
+                  className="flex-1 border border-slate-300 rounded-lg px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 mr-3"
+                />
+              ) : (
+                <span className="text-sm text-slate-700 font-mono bg-slate-50 px-2 py-0.5 rounded">{s.name}</span>
+              )}
+              {isOwner && renamingSourceId !== s.id && (
+                <div className="flex gap-3">
+                  <button
+                    onClick={() => { setRenamingSourceId(s.id); setRenameValue(s.name) }}
+                    className="text-xs text-slate-400 hover:text-slate-700"
+                  >
+                    Rename
+                  </button>
+                  <button
+                    onClick={() => deleteSource(s.id, s.name)}
+                    className="text-xs text-slate-400 hover:text-red-500"
+                  >
+                    Delete
+                  </button>
+                </div>
+              )}
+            </div>
+          ))}
+          {isOwner && (
+            <form onSubmit={addSource} className="flex gap-2 pt-2 border-t border-slate-100 mt-2">
+              <input
+                value={newSource}
+                onChange={e => setNewSource(e.target.value)}
+                placeholder="e.g. Chase Business Checking"
+                className="flex-1 border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
+              />
+              <button type="submit" className="bg-slate-900 text-white text-sm px-4 py-1.5 rounded-lg hover:bg-slate-800">
+                Add
+              </button>
             </form>
           )}
         </div>
