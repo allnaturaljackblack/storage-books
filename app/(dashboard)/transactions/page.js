@@ -205,10 +205,13 @@ export default function TransactionsPage() {
     await loadAll()
   }
 
+  const uncategorizedCount = transactions.filter(t => !t.category_id).length
+
   const filtered = transactions.filter(t => {
     if (companyFilter !== 'all' && t.company_id !== companyFilter) return false
     if (sourceFilter !== 'all' && t.source !== sourceFilter) return false
-    if (categoryFilter !== 'all' && t.category_id !== categoryFilter) return false
+    if (categoryFilter === '__uncategorized__') { if (t.category_id) return false }
+    else if (categoryFilter !== 'all' && t.category_id !== categoryFilter) return false
     if (dateFrom && t.date < dateFrom) return false
     if (dateTo && t.date > dateTo) return false
     if (search && !t.description?.toLowerCase().includes(search.toLowerCase())) return false
@@ -231,6 +234,19 @@ export default function TransactionsPage() {
       <div className="flex items-center justify-between mb-6">
         <h1 className="text-xl font-bold text-slate-900">Transactions</h1>
         <div className="flex items-center gap-3">
+          {uncategorizedCount > 0 && (
+            <button
+              onClick={() => setCategoryFilter(categoryFilter === '__uncategorized__' ? 'all' : '__uncategorized__')}
+              className={`flex items-center gap-1.5 text-xs font-medium px-3 py-1.5 rounded-lg border transition-colors ${
+                categoryFilter === '__uncategorized__'
+                  ? 'bg-amber-500 text-white border-amber-500'
+                  : 'bg-amber-50 text-amber-700 border-amber-200 hover:bg-amber-100'
+              }`}
+            >
+              <span className={`w-1.5 h-1.5 rounded-full ${categoryFilter === '__uncategorized__' ? 'bg-white' : 'bg-amber-500'}`} />
+              {uncategorizedCount} uncategorized
+            </button>
+          )}
           <span className="text-sm text-slate-500">{filtered.length} transactions</span>
           {isOwner && (
             <button onClick={() => { setNewTx(p => ({ ...p, company_id: companies[0]?.id || '' })); setShowAddModal(true) }}
@@ -263,6 +279,7 @@ export default function TransactionsPage() {
         <select value={categoryFilter} onChange={e => setCategoryFilter(e.target.value)}
           className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900">
           <option value="all">All Categories</option>
+          <option value="__uncategorized__">⚠ Uncategorized only</option>
           {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
         </select>
         <input type="date" value={dateFrom} onChange={e => setDateFrom(e.target.value)}
@@ -275,6 +292,9 @@ export default function TransactionsPage() {
             className="text-sm text-slate-500 hover:text-slate-800 underline">
             Clear filters
           </button>
+        )}
+        {categoryFilter === '__uncategorized__' && (
+          <span className="text-xs text-amber-600 font-medium">Showing {filtered.length} uncategorized</span>
         )}
       </div>
 
@@ -384,7 +404,7 @@ export default function TransactionsPage() {
                 const editing = editingId === t.id
                 const isSelected = selected.has(t.id)
                 return (
-                  <tr key={t.id} className={`group ${isSelected ? 'bg-blue-50' : 'hover:bg-slate-50'}`}>
+                  <tr key={t.id} className={`group ${isSelected ? 'bg-blue-50' : !t.category_id ? 'bg-amber-50/40 hover:bg-amber-50' : 'hover:bg-slate-50'}`}>
                     <td className="px-4 py-2.5">
                       <input type="checkbox" checked={isSelected} onChange={() => toggleSelect(t.id)}
                         className="rounded border-slate-300" />
