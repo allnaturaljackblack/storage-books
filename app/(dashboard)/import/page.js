@@ -21,12 +21,21 @@ const PARSERS = {
 }
 
 const SOURCE_LABELS = {
-  chase: 'Chase Bank',
+  chase: 'Chase Credit Card',
   amex: 'American Express',
   suncoast_checking: 'Suncoast Checking',
   suncoast_savings: 'Suncoast Savings',
   googlesheet: 'Google Sheet',
   easystorage: 'Easy Storage Solutions',
+}
+
+const SOURCE_DESCRIPTIONS = {
+  chase: 'CC line items only — use for detailed P&L. Does not affect bank balance.',
+  amex: 'CC line items only — use for detailed P&L. Does not affect bank balance.',
+  suncoast_checking: 'Bank transactions — ties to monthly bank balance reconciliation.',
+  suncoast_savings: 'Savings account transactions — ties to monthly balance.',
+  googlesheet: 'Flexible import from a manually-maintained Google Sheet.',
+  easystorage: 'Revenue and tenant data from Easy Storage Solutions.',
 }
 
 export default function ImportPage() {
@@ -289,13 +298,18 @@ export default function ImportPage() {
                 <button
                   key={val}
                   onClick={() => setSource(val)}
-                  className={`px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                  className={`px-3 py-2 rounded-lg border text-sm font-medium text-left transition-colors ${
                     source === val
                       ? 'bg-slate-900 text-white border-slate-900'
                       : 'bg-white text-slate-700 border-slate-200 hover:border-slate-400'
                   }`}
                 >
-                  {label}
+                  <span className="block">{label}</span>
+                  {SOURCE_DESCRIPTIONS[val] && (
+                    <span className={`block text-xs font-normal mt-0.5 ${source === val ? 'text-slate-300' : 'text-slate-400'}`}>
+                      {SOURCE_DESCRIPTIONS[val]}
+                    </span>
+                  )}
                 </button>
               ))}
             </div>
