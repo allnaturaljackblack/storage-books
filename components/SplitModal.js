@@ -9,13 +9,11 @@ export default function SplitModal({ transaction, categories, onConfirm, onClose
     {
       description: transaction.description + ' — Interest',
       category_id: categories.find(c => c.name === 'Mortgage / Loan Interest')?.id || '',
-      expense_type: 'opex',
       amount: '',
     },
     {
       description: transaction.description + ' — Principal',
       category_id: '',
-      expense_type: 'capex',
       amount: '',
     },
   ])
@@ -29,7 +27,7 @@ export default function SplitModal({ transaction, categories, onConfirm, onClose
   }
 
   function addSplit() {
-    setSplits(prev => [...prev, { description: transaction.description, category_id: '', expense_type: '', amount: '' }])
+    setSplits(prev => [...prev, { description: transaction.description, category_id: '', amount: '' }])
   }
 
   function removeSplit(i) {
@@ -51,7 +49,7 @@ export default function SplitModal({ transaction, categories, onConfirm, onClose
       original_description: transaction.original_description || transaction.description,
       amount: isExpense ? -(parseFloat(s.amount)) : parseFloat(s.amount),
       category_id: s.category_id || null,
-      expense_type: s.expense_type || null,
+      expense_type: null,
       auto_matched: false,
     }))
     onConfirm(result)
@@ -102,33 +100,19 @@ export default function SplitModal({ transaction, categories, onConfirm, onClose
                 className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-900"
               />
 
-              <div className="grid grid-cols-2 gap-2">
-                <select
-                  value={s.category_id}
-                  onChange={e => updateSplit(i, 'category_id', e.target.value)}
-                  className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-900"
-                >
-                  <option value="">— Category —</option>
-                  <optgroup label="Income">
-                    {incomeCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </optgroup>
-                  <optgroup label="Expenses">
-                    {expenseCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </optgroup>
-                </select>
-
-                <select
-                  value={s.expense_type}
-                  onChange={e => updateSplit(i, 'expense_type', e.target.value)}
-                  className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-900"
-                >
-                  <option value="">— Type —</option>
-                  <option value="opex">OpEx</option>
-                  <option value="one_time">One-Time</option>
-                  <option value="capex">CapEx</option>
-                  <option value="owner_addback">Add-Back</option>
-                </select>
-              </div>
+              <select
+                value={s.category_id}
+                onChange={e => updateSplit(i, 'category_id', e.target.value)}
+                className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-900"
+              >
+                <option value="">— Category —</option>
+                <optgroup label="Income">
+                  {incomeCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </optgroup>
+                <optgroup label="Expenses">
+                  {expenseCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                </optgroup>
+              </select>
 
               <div className="flex items-center gap-2">
                 <span className="text-sm text-slate-400">$</span>

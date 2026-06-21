@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { filterTransactions, buildPL, applyExpenseFilter, formatCurrency } from '@/lib/reports/pl'
+import { filterTransactions, buildPL, formatCurrency } from '@/lib/reports/pl'
 
 const CURRENT_YEAR = new Date().getFullYear()
 const CURRENT_MONTH = new Date().getMonth() + 1
@@ -15,7 +15,6 @@ export default function EntityComparisonPage() {
   const [year, setYear] = useState(CURRENT_YEAR)
   const [monthFrom, setMonthFrom] = useState(1)
   const [monthTo, setMonthTo] = useState(CURRENT_MONTH)
-  const [expenseFilter, setExpenseFilter] = useState('opex_only')
   const [showPct, setShowPct] = useState(false)
   const [loading, setLoading] = useState(true)
 
@@ -44,7 +43,7 @@ export default function EntityComparisonPage() {
       (companyId ? t.company_id === companyId : true) &&
       t.date >= from && t.date <= to
     )
-    return applyExpenseFilter(filterTransactions(base, 'detailed'), categories, expenseFilter)
+    return filterTransactions(base, 'detailed')
   }
 
   const entityPLs = companies.map(co => ({ company: co, pl: buildPL(filteredTx(co.id), categories) }))
@@ -137,15 +136,6 @@ export default function EntityComparisonPage() {
           <select value={monthTo} onChange={e => setMonthTo(Number(e.target.value))}
             className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900">
             {MONTHS.map((m, i) => <option key={i} value={i + 1}>{m}</option>)}
-          </select>
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-500 mb-1">Expenses</label>
-          <select value={expenseFilter} onChange={e => setExpenseFilter(e.target.value)}
-            className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900">
-            <option value="opex_only">OpEx Only</option>
-            <option value="all">All Expenses</option>
-            <option value="exclude_capex">Exclude CapEx</option>
           </select>
         </div>
         <div className="ml-auto flex items-end">
@@ -246,7 +236,7 @@ export default function EntityComparisonPage() {
               {/* ── Expenses ── */}
               <tr className="bg-slate-50/70 border-y border-slate-100">
                 <td colSpan={numCols + 1} className="px-5 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wider">
-                  {expenseFilter === 'opex_only' ? 'Operating Expenses' : 'Expenses'}
+                  Expenses
                 </td>
               </tr>
               {allExpenseNames.map(name => {
@@ -283,7 +273,7 @@ export default function EntityComparisonPage() {
               })}
               <tr className="border-b border-slate-200 bg-red-50/30">
                 <td className="px-5 py-3 font-semibold text-slate-800 sticky left-0 bg-red-50/30">
-                  Total {expenseFilter === 'opex_only' ? 'OpEx' : 'Expenses'}
+                  Total Expenses
                 </td>
                 {entityPLs.map(({ company, pl }) => (
                   <td key={company.id} className="px-4 py-3 text-right font-mono text-sm font-semibold text-red-600">

@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { filterTransactions, applyExpenseFilter, buildPL, formatCurrency } from '@/lib/reports/pl'
+import { filterTransactions, buildPL, formatCurrency } from '@/lib/reports/pl'
 import PrintHeader from '@/components/PrintHeader'
 
 const CURRENT_YEAR = new Date().getFullYear()
@@ -20,7 +20,6 @@ export default function PLPage() {
 
   const [companyFilter, setCompanyFilter] = useState('all')
   const [mode, setMode] = useState('detailed') // detailed | non_detailed | full | bank_pl
-  const [expenseFilter, setExpenseFilter] = useState('all')
   const [year, setYear] = useState(CURRENT_YEAR)
   const [monthFrom, setMonthFrom] = useState(1)
   const [monthTo, setMonthTo] = useState(12)
@@ -91,11 +90,6 @@ export default function PLPage() {
       )
       if (txInCat.length > 0) {
         const ids = txInCat.map(t => t.id)
-        // Remove opex tag
-        if (cat?.type === 'expense') {
-          await supabase.from('transactions').update({ expense_type: null }).in('id', ids)
-          setTransactions(prev => prev.map(t => ids.includes(t.id) ? { ...t, expense_type: null } : t))
-        }
         // Remove exclusions
         const eq = companyId
           ? supabase.from('bank_pl_exclusions').delete().in('transaction_id', ids).eq('company_id', companyId)
@@ -108,71 +102,23 @@ export default function PLPage() {
       await supabase.from('bank_pl_categories').insert({ category_id: categoryId, company_id: companyId })
       setBankIncludedCats(prev => new Set([...prev, categoryId]))
 
-      // Auto-tag expense transactions in this category as opex
-      if (cat?.type === 'expense') {
-        const txToTag = transactions.filter(t =>
-          t.category_id === categoryId &&
-          t.amount < 0 &&
-          (!companyId || t.company_id === companyId)
-        )
-        if (txToTag.length > 0) {
-          const ids = txToTag.map(t => t.id)
-          await supabase.from('transactions').update({ expense_type: 'opex' }).in('id', ids)
-          setTransactions(prev => prev.map(t => ids.includes(t.id) ? { ...t, expense_type: 'opex' } : t))
-        }
-      }
     }
   }
 
   async function toggleBankTransaction(txId) {
     const companyId = bankEntity === 'portfolio' ? null : bankEntity
     if (bankExcludedTxs.has(txId)) {
-      // Re-include: remove from exclusions + restore opex tag
+      // Re-include: remove from exclusions
       const q = companyId
         ? supabase.from('bank_pl_exclusions').delete().eq('transaction_id', txId).eq('company_id', companyId)
         : supabase.from('bank_pl_exclusions').delete().eq('transaction_id', txId).is('company_id', null)
       await q
-      await supabase.from('transactions').update({ expense_type: 'opex' }).eq('id', txId)
-      setTransactions(prev => prev.map(t => t.id === txId ? { ...t, expense_type: 'opex' } : t))
       setBankExcludedTxs(prev => { const n = new Set(prev); n.delete(txId); return n })
     } else {
-      // Exclude: add to exclusions + remove opex tag
+      // Exclude: add to exclusions
       await supabase.from('bank_pl_exclusions').insert({ transaction_id: txId, company_id: companyId })
-      await supabase.from('transactions').update({ expense_type: null }).eq('id', txId)
-      setTransactions(prev => prev.map(t => t.id === txId ? { ...t, expense_type: null } : t))
       setBankExcludedTxs(prev => new Set([...prev, txId]))
     }
-  }
-
-  async function syncOpexTags() {
-    const companyId = bankEntity === 'portfolio' ? null : bankEntity
-    // Tag all expense transactions whose category is in Bank P&L and not excluded
-    const txToTag = transactions.filter(t =>
-      t.amount < 0 &&
-      bankIncludedCats.has(t.category_id) &&
-      !bankExcludedTxs.has(t.id) &&
-      (!companyId || t.company_id === companyId)
-    )
-    // Untag all expense transactions whose category is NOT in Bank P&L (or are excluded)
-    const txToUntag = transactions.filter(t =>
-      t.amount < 0 &&
-      t.expense_type === 'opex' &&
-      (!companyId || t.company_id === companyId) &&
-      (!bankIncludedCats.has(t.category_id) || bankExcludedTxs.has(t.id))
-    )
-    const tagIds = txToTag.map(t => t.id)
-    const untagIds = txToUntag.map(t => t.id)
-    if (tagIds.length > 0) {
-      await supabase.from('transactions').update({ expense_type: 'opex' }).in('id', tagIds)
-    }
-    if (untagIds.length > 0) {
-      await supabase.from('transactions').update({ expense_type: null }).in('id', untagIds)
-    }
-    setTransactions(prev => prev.map(t => {
-      if (tagIds.includes(t.id)) return { ...t, expense_type: 'opex' }
-      if (untagIds.includes(t.id)) return { ...t, expense_type: null }
-      return t
-    }))
   }
 
   function toggleExpandBankCat(catId) {
@@ -193,7 +139,6 @@ export default function PLPage() {
     return true
   })
   filtered = filterTransactions(filtered, mode === 'bank_pl' ? 'detailed' : mode)
-  filtered = applyExpenseFilter(filtered, categories, expenseFilter)
   const pl = buildPL(filtered, categories)
 
   // Bank P&L filtered transactions
@@ -226,9 +171,7 @@ export default function PLPage() {
   function buildByCompany() {
     if (companyFilter !== 'all') return null
     return companies.map(co => {
-      const coTx = applyExpenseFilter(filterTransactions(
-        filtered.filter(t => t.company_id === co.id), mode
-      ), categories, expenseFilter)
+      const coTx = filterTransactions(filtered.filter(t => t.company_id === co.id), mode)
       return { company: co, pl: buildPL(coTx, categories) }
     })
   }
@@ -305,17 +248,6 @@ export default function PLPage() {
           </select>
         </div>
         {mode !== 'bank_pl' && (
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-1">Expense Filter</label>
-            <select value={expenseFilter} onChange={e => setExpenseFilter(e.target.value)}
-              className="border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900">
-              <option value="all">All Expenses</option>
-              <option value="opex_only">OpEx Only</option>
-              <option value="exclude_capex">Exclude CapEx</option>
-            </select>
-          </div>
-        )}
-        {mode !== 'bank_pl' && (
           <div className="flex gap-2">
             <button onClick={() => setView('summary')}
               className={`px-3 py-1.5 text-sm rounded-lg border ${view === 'summary' ? 'bg-slate-900 text-white border-slate-900' : 'border-slate-200 text-slate-600 hover:bg-slate-50'}`}>
@@ -360,17 +292,11 @@ export default function PLPage() {
                 <option value="portfolio">Portfolio (All Entities)</option>
                 {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </select>
-              <div className="flex items-center justify-between mt-2">
+              <div className="mt-2">
                 <p className="text-xs text-slate-400">
                   {bankIncludedCats.size} categor{bankIncludedCats.size === 1 ? 'y' : 'ies'} selected
                   {bankExcludedTxs.size > 0 && `, ${bankExcludedTxs.size} excluded`}
                 </p>
-                {bankIncludedCats.size > 0 && (
-                  <button onClick={syncOpexTags}
-                    className="text-xs text-slate-500 hover:text-slate-900 border border-slate-200 rounded px-2 py-0.5 hover:bg-slate-50">
-                    Sync OpEx Tags
-                  </button>
-                )}
               </div>
             </div>
 

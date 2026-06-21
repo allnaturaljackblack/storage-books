@@ -3,7 +3,6 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
 
 const MATCH_TYPE_LABELS = { contains: 'Contains', starts_with: 'Starts with', exact: 'Exact match' }
-const EXPENSE_TYPE_LABELS = { opex: 'OpEx', one_time: 'One-Time', capex: 'CapEx', owner_addback: 'Add-Back' }
 
 export default function SettingsPage() {
   const [companies, setCompanies] = useState([])
@@ -16,7 +15,7 @@ export default function SettingsPage() {
 
   const [newCompany, setNewCompany] = useState('')
   const [newCategory, setNewCategory] = useState({ name: '', type: 'expense' })
-  const [newRule, setNewRule] = useState({ keyword: '', category_id: '', expense_type: '', match_type: 'contains', company_id: '' })
+  const [newRule, setNewRule] = useState({ keyword: '', category_id: '', match_type: 'contains', company_id: '' })
   const [editingRuleId, setEditingRuleId] = useState(null)
   const [editingRule, setEditingRule] = useState(null)
 
@@ -189,12 +188,11 @@ export default function SettingsPage() {
     const { error } = await supabase.from('categorization_rules').insert({
       keyword: newRule.keyword.trim(),
       category_id: newRule.category_id || null,
-      expense_type: newRule.expense_type || null,
       match_type: newRule.match_type,
       company_id: newRule.company_id || null,
     })
     if (error) { alert('Error: ' + error.message); return }
-    setNewRule({ keyword: '', category_id: '', expense_type: '', match_type: 'contains', company_id: '' })
+    setNewRule({ keyword: '', category_id: '', match_type: 'contains', company_id: '' })
     await loadAll()
   }
 
@@ -209,7 +207,6 @@ export default function SettingsPage() {
       keyword: r.keyword,
       match_type: r.match_type,
       category_id: r.category_id || '',
-      expense_type: r.expense_type || '',
       company_id: r.company_id || '',
     })
   }
@@ -220,7 +217,6 @@ export default function SettingsPage() {
       keyword: editingRule.keyword.trim(),
       match_type: editingRule.match_type,
       category_id: editingRule.category_id || null,
-      expense_type: editingRule.expense_type || null,
       company_id: editingRule.company_id || null,
     }).eq('id', editingRuleId)
     if (error) { alert('Error: ' + error.message); return }
@@ -385,17 +381,6 @@ export default function SettingsPage() {
                         </optgroup>
                       </select>
                     </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-500 mb-1">Expense Type</label>
-                      <select value={editingRule.expense_type} onChange={e => setEditingRule(p => ({ ...p, expense_type: e.target.value }))}
-                        className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-900">
-                        <option value="">— None —</option>
-                        <option value="opex">OpEx</option>
-                        <option value="one_time">One-Time</option>
-                        <option value="capex">CapEx</option>
-                        <option value="owner_addback">Add-Back</option>
-                      </select>
-                    </div>
                     <div className="col-span-2">
                       <label className="block text-xs font-medium text-slate-500 mb-1">Facility</label>
                       <select value={editingRule.company_id} onChange={e => setEditingRule(p => ({ ...p, company_id: e.target.value }))}
@@ -421,11 +406,6 @@ export default function SettingsPage() {
                   <span className="text-xs text-slate-400">{MATCH_TYPE_LABELS[r.match_type]}</span>
                   <span className="text-xs text-slate-400">→</span>
                   {r.categories && <span className="text-xs text-slate-700 font-medium">{r.categories.name}</span>}
-                  {r.expense_type && (
-                    <span className="text-xs bg-blue-50 text-blue-700 border border-blue-200 px-1.5 py-0.5 rounded font-medium">
-                      {EXPENSE_TYPE_LABELS[r.expense_type]}
-                    </span>
-                  )}
                   {scopedCompany ? (
                     <span className="text-xs bg-violet-50 text-violet-700 border border-violet-200 px-1.5 py-0.5 rounded font-medium">
                       {scopedCompany.name}
@@ -482,20 +462,6 @@ export default function SettingsPage() {
                     <optgroup label="Expenses">
                       {expenseCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </optgroup>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Expense Type (optional)</label>
-                  <select
-                    value={newRule.expense_type}
-                    onChange={e => setNewRule(p => ({ ...p, expense_type: e.target.value }))}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
-                  >
-                    <option value="">— None —</option>
-                    <option value="opex">OpEx</option>
-                    <option value="one_time">One-Time</option>
-                    <option value="capex">CapEx</option>
-                    <option value="owner_addback">Add-Back</option>
                   </select>
                 </div>
                 <div className="col-span-2">

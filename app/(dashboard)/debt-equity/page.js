@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { filterTransactions, buildPL, applyExpenseFilter, formatCurrency } from '@/lib/reports/pl'
+import { filterTransactions, buildPL, formatCurrency } from '@/lib/reports/pl'
 
 const CURRENT_YEAR = new Date().getFullYear()
 const CURRENT_MONTH = new Date().getMonth() + 1
@@ -58,7 +58,7 @@ export default function DebtEquityPage() {
     const from = `${CURRENT_YEAR}-01-01`
     const to   = `${CURRENT_YEAR}-${String(CURRENT_MONTH).padStart(2, '0')}-31`
     const base = transactions.filter(t => t.company_id === companyId && t.date >= from && t.date <= to)
-    const filtered = applyExpenseFilter(filterTransactions(base, 'detailed'), categories, 'opex_only')
+    const filtered = filterTransactions(base, 'detailed')
     const pl = buildPL(filtered, categories)
     // Annualize YTD
     return CURRENT_MONTH > 0 ? (pl.noi / CURRENT_MONTH) * 12 : pl.noi
