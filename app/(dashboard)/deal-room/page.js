@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { filterTransactions, buildPL, formatCurrency } from '@/lib/reports/pl'
+import { filterTransactions, applyExpenseFilter, buildPL, formatCurrency } from '@/lib/reports/pl'
 
 const CURRENT_YEAR = new Date().getFullYear()
 const YEARS = [CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR - 2]
@@ -44,8 +44,8 @@ export default function DealRoomPage() {
     return true
   })
 
-  // Deal room = detailed P&L (accrual)
-  const detailedFiltered = filterTransactions(filtered, 'detailed')
+  // Deal room = detailed P&L (accrual), opex-tagged transactions only
+  const detailedFiltered = applyExpenseFilter(filterTransactions(filtered, 'detailed'), categories, 'opex_only')
 
   const pl = buildPL(detailedFiltered, categories)
 
