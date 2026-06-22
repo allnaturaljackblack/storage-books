@@ -60,12 +60,11 @@ export default function ImportPage() {
 
   // New rule modal state
   const [showAddRule, setShowAddRule] = useState(false)
-  const [newRule, setNewRule] = useState({ keyword: '', match_type: 'contains', category_id: '', expense_type: '', company_id: '' })
+  const [newRule, setNewRule] = useState({ keyword: '', match_type: 'contains', category_id: '', company_id: '' })
 
   // Bulk select state
   const [selected, setSelected] = useState(new Set())
   const [bulkCategory, setBulkCategory] = useState('')
-  const [bulkExpenseType, setBulkExpenseType] = useState('')
 
   const fileRef = useRef()
   const supabase = createClient()
@@ -119,7 +118,6 @@ export default function ImportPage() {
       keyword: newRule.keyword.trim(),
       match_type: newRule.match_type,
       category_id: newRule.category_id || null,
-      expense_type: newRule.expense_type || null,
       company_id: newRule.company_id || null,
     })
     if (error) { alert('Error: ' + error.message); return }
@@ -132,7 +130,7 @@ export default function ImportPage() {
       updatedRules || [],
       companyId
     ))
-    setNewRule({ keyword: '', match_type: 'contains', category_id: '', expense_type: '', company_id: '' })
+    setNewRule({ keyword: '', match_type: 'contains', category_id: '', company_id: '' })
     setShowAddRule(false)
   }
 
@@ -148,7 +146,7 @@ export default function ImportPage() {
         const parsed = parser(result.data, categories, sheetType)
         // Apply auto-categorization rules
         const withRules = applyRules(
-          parsed.map(r => ({ ...r, expense_type: r.expense_type || '', skip: false })),
+          parsed.map(r => ({ ...r, skip: false })),
           rules,
           companyId
         )
@@ -192,18 +190,13 @@ export default function ImportPage() {
 
   // --- Bulk apply ---
   function applyBulk() {
-    if (!bulkCategory && !bulkExpenseType) return
+    if (!bulkCategory) return
     setRows(prev => prev.map((r, i) => {
       if (!selected.has(i)) return r
-      return {
-        ...r,
-        ...(bulkCategory ? { category_id: bulkCategory } : {}),
-        ...(bulkExpenseType ? { expense_type: bulkExpenseType } : {}),
-      }
+      return { ...r, category_id: bulkCategory }
     }))
     setSelected(new Set())
     setBulkCategory('')
-    setBulkExpenseType('')
   }
 
   async function saveTransactions() {
@@ -214,7 +207,6 @@ export default function ImportPage() {
         ...r,
         company_id: companyId,
         category_id: r.category_id || null,
-        expense_type: r.expense_type || null,
         amount: r.amount !== '' && r.amount !== null && r.amount !== undefined ? parseFloat(r.amount) : null,
       }))
       .filter(r => r.amount !== null && !isNaN(r.amount))
@@ -240,7 +232,6 @@ export default function ImportPage() {
       source_type: 'bank',
       is_autopayment: false,
       category_id: '',
-      expense_type: '',
       skip: false,
       manual: true,
     }])
@@ -491,20 +482,9 @@ export default function ImportPage() {
                 {expenseCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
               </optgroup>
             </select>
-            <select
-              value={bulkExpenseType}
-              onChange={e => setBulkExpenseType(e.target.value)}
-              className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-900"
-            >
-              <option value="">Set type...</option>
-              <option value="opex">OpEx</option>
-              <option value="one_time">One-Time</option>
-              <option value="capex">CapEx</option>
-              <option value="owner_addback">Add-Back</option>
-            </select>
             <button
               onClick={applyBulk}
-              disabled={!bulkCategory && !bulkExpenseType}
+              disabled={!bulkCategory}
               className="text-xs px-3 py-1.5 bg-slate-900 text-white rounded-lg hover:bg-slate-800 disabled:opacity-40"
             >
               Apply to selected
@@ -557,17 +537,6 @@ export default function ImportPage() {
                   <optgroup label="Expenses">
                     {expenseCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                   </optgroup>
-                </select>
-              </div>
-              <div>
-                <label className="block text-xs font-medium text-slate-500 mb-1">Expense Type (optional)</label>
-                <select value={newRule.expense_type} onChange={e => setNewRule(p => ({ ...p, expense_type: e.target.value }))}
-                  className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900">
-                  <option value="">— None —</option>
-                  <option value="opex">OpEx</option>
-                  <option value="one_time">One-Time</option>
-                  <option value="capex">CapEx</option>
-                  <option value="owner_addback">Add-Back</option>
                 </select>
               </div>
               <div>
@@ -672,7 +641,6 @@ export default function ImportPage() {
               <th className="text-left px-3 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Description</th>
               <th className="text-right px-3 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Amount</th>
               <th className="text-left px-3 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Category</th>
-              <th className="text-left px-3 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Type</th>
               <th className="px-3 py-2.5 w-12"></th>
             </tr>
           </thead>
@@ -774,25 +742,6 @@ export default function ImportPage() {
                       onCreateCategory={createCategoryInline}
                       disabled={row.skip}
                     />
-                  )}
-                </td>
-
-                <td className="px-3 py-2">
-                  {row.amount < 0 && (
-                    <select
-                      value={row.expense_type}
-                      onChange={e => updateRow(i, 'expense_type', e.target.value)}
-                      disabled={row.skip}
-                      className={`border rounded px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-900 ${
-                        row.auto_matched && row.expense_type ? 'border-emerald-300 bg-emerald-50' : 'border-slate-200'
-                      }`}
-                    >
-                      <option value="">— Type —</option>
-                      <option value="opex">OpEx</option>
-                      <option value="one_time">One-Time</option>
-                      <option value="capex">CapEx</option>
-                      <option value="owner_addback">Add-Back</option>
-                    </select>
                   )}
                 </td>
 

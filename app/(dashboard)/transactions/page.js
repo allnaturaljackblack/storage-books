@@ -1,7 +1,6 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import ExpenseTypeBadge from '@/components/ExpenseTypeBadge'
 import CommentPanel from '@/components/CommentPanel'
 import SplitModal from '@/components/SplitModal'
 
@@ -24,7 +23,6 @@ export default function TransactionsPage() {
   // Selection
   const [selected, setSelected] = useState(new Set())
   const [bulkCategory, setBulkCategory] = useState('')
-  const [bulkExpenseType, setBulkExpenseType] = useState('')
   const [bulkSource, setBulkSource] = useState('')
   const [customBulkSource, setCustomBulkSource] = useState('')
 
@@ -36,7 +34,7 @@ export default function TransactionsPage() {
 
   // Add transaction modal
   const [showAddModal, setShowAddModal] = useState(false)
-  const [newTx, setNewTx] = useState({ date: '', description: '', amount: '', txType: 'expense', category_id: '', expense_type: '', company_id: '', source: 'manual' })
+  const [newTx, setNewTx] = useState({ date: '', description: '', amount: '', txType: 'expense', category_id: '', company_id: '', source: 'manual' })
 
   const supabase = createClient()
 
@@ -63,53 +61,6 @@ export default function TransactionsPage() {
   async function updateTransaction(id, updates) {
     await supabase.from('transactions').update(updates).eq('id', id)
     setTransactions(prev => prev.map(t => t.id === id ? { ...t, ...updates } : t))
-  }
-
-  async function updateExpenseType(tx, newType) {
-    await updateTransaction(tx.id, { expense_type: newType || null })
-
-    // Sync with Bank P&L
-    const companyId = tx.company_id || null
-
-    if (newType === 'opex' && tx.category_id) {
-      // Ensure category is in bank_pl_categories for this entity
-      const { data: existing } = await supabase
-        .from('bank_pl_categories')
-        .select('id')
-        .eq('category_id', tx.category_id)
-        .eq('company_id', companyId)
-        .maybeSingle()
-      if (!existing) {
-        await supabase.from('bank_pl_categories').insert({ category_id: tx.category_id, company_id: companyId })
-      }
-      // Remove from exclusions if it was excluded
-      await supabase.from('bank_pl_exclusions')
-        .delete()
-        .eq('transaction_id', tx.id)
-        .eq('company_id', companyId)
-
-    } else if (!newType || newType !== 'opex') {
-      // If category is in bank_pl for this entity, add transaction to exclusions
-      if (tx.category_id) {
-        const { data: inBankPL } = await supabase
-          .from('bank_pl_categories')
-          .select('id')
-          .eq('category_id', tx.category_id)
-          .eq('company_id', companyId)
-          .maybeSingle()
-        if (inBankPL) {
-          const { data: alreadyExcluded } = await supabase
-            .from('bank_pl_exclusions')
-            .select('id')
-            .eq('transaction_id', tx.id)
-            .eq('company_id', companyId)
-            .maybeSingle()
-          if (!alreadyExcluded) {
-            await supabase.from('bank_pl_exclusions').insert({ transaction_id: tx.id, company_id: companyId })
-          }
-        }
-      }
-    }
   }
 
   async function deleteTransaction(id) {
@@ -156,27 +107,17 @@ export default function TransactionsPage() {
 
   async function bulkApply() {
     const resolvedSource = bulkSource === '__custom__' ? customBulkSource.trim() : bulkSource
-    if (selected.size === 0 || (!bulkCategory && !bulkExpenseType && !resolvedSource)) return
+    if (selected.size === 0 || (!bulkCategory && !resolvedSource)) return
     const ids = [...selected]
     const updates = {}
     if (bulkCategory) updates.category_id = bulkCategory
-    if (bulkExpenseType) updates.expense_type = bulkExpenseType
     if (resolvedSource) updates.source = resolvedSource
 
     const { error } = await supabase.from('transactions').update(updates).in('id', ids)
     if (error) { alert('Error applying changes: ' + error.message); return }
 
-    // Sync Bank P&L if bulk-applying an expense type
-    if (bulkExpenseType) {
-      const selectedTxs = transactions.filter(t => ids.includes(t.id))
-      for (const tx of selectedTxs) {
-        await updateExpenseType({ ...tx, expense_type: tx.expense_type }, bulkExpenseType)
-      }
-    }
-
     setSelected(new Set())
     setBulkCategory('')
-    setBulkExpenseType('')
     setBulkSource('')
     setCustomBulkSource('')
     await loadAll()
@@ -196,12 +137,11 @@ export default function TransactionsPage() {
       source_type: 'bank',
       is_autopayment: false,
       category_id: newTx.category_id || null,
-      expense_type: newTx.expense_type || null,
       company_id: newTx.company_id,
     })
     if (error) { alert('Error: ' + error.message); return }
     setShowAddModal(false)
-    setNewTx({ date: '', description: '', amount: '', txType: 'expense', category_id: '', expense_type: '', company_id: '', source: 'manual' })
+    setNewTx({ date: '', description: '', amount: '', txType: 'expense', category_id: '', company_id: '', source: 'manual' })
     await loadAll()
   }
 
@@ -227,7 +167,7 @@ export default function TransactionsPage() {
   const allSources = sources.map(s => s.name)
 
   const resolvedBulkSource = bulkSource === '__custom__' ? customBulkSource.trim() : bulkSource
-  const canApplyBulk = selected.size > 0 && (!!bulkCategory || !!bulkExpenseType || !!resolvedBulkSource)
+  const canApplyBulk = selected.size > 0 && (!!bulkCategory || !!resolvedBulkSource)
 
   return (
     <div className="p-8">
@@ -330,15 +270,6 @@ export default function TransactionsPage() {
                   {expenseCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                 </optgroup>
               </select>
-              <select value={bulkExpenseType} onChange={e => setBulkExpenseType(e.target.value)}
-                className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-900">
-                <option value="">Set type...</option>
-                <option value="opex">OpEx</option>
-                <option value="one_time">One-Time</option>
-                <option value="capex">CapEx</option>
-                <option value="owner_addback">Add-Back</option>
-              </select>
-
               {/* Bulk source */}
               <select value={bulkSource} onChange={e => { setBulkSource(e.target.value); setCustomBulkSource('') }}
                 className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-900">
@@ -392,7 +323,6 @@ export default function TransactionsPage() {
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Description</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Entity</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Category</th>
-                <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Type</th>
                 <th className="text-left px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Source</th>
                 <th className="text-right px-4 py-2.5 text-xs font-semibold text-slate-500 uppercase tracking-wider">Amount</th>
                 <th className="px-4 py-2.5 w-16"></th>
@@ -431,20 +361,6 @@ export default function TransactionsPage() {
                         </select>
                       ) : (
                         <span className="text-xs text-slate-600">{t.categories?.name || 'Uncategorized'}</span>
-                      )}
-                    </td>
-                    <td className="px-4 py-2.5">
-                      {isOwner && t.amount < 0 ? (
-                        <select value={t.expense_type || ''} onChange={e => updateExpenseType(t, e.target.value || null)}
-                          className="border border-slate-200 rounded px-2 py-1 text-xs text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-900">
-                          <option value="">— Type —</option>
-                          <option value="opex">OpEx</option>
-                          <option value="one_time">One-Time</option>
-                          <option value="capex">CapEx</option>
-                          <option value="owner_addback">Add-Back</option>
-                        </select>
-                      ) : (
-                        <ExpenseTypeBadge type={t.expense_type} />
                       )}
                     </td>
                     <td className="px-4 py-2.5">
@@ -574,20 +490,6 @@ export default function TransactionsPage() {
                   ))}
                 </select>
               </div>
-
-              {newTx.txType === 'expense' && (
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Expense Type</label>
-                  <select value={newTx.expense_type} onChange={e => setNewTx(p => ({ ...p, expense_type: e.target.value }))}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900">
-                    <option value="">None</option>
-                    <option value="opex">OpEx</option>
-                    <option value="one_time">One-Time</option>
-                    <option value="capex">CapEx</option>
-                    <option value="owner_addback">Owner Add-Back</option>
-                  </select>
-                </div>
-              )}
 
               <div>
                 <label className="block text-xs font-medium text-slate-500 mb-1">Source</label>

@@ -44,46 +44,23 @@ export default function DealRoomPage() {
     return true
   })
 
-  // Deal room = detailed P&L (accrual) with OpEx only
-  const opexFiltered = applyExpenseFilter(filterTransactions(filtered, 'detailed'), categories, 'opex_only')
+  // Deal room = detailed P&L (accrual), opex-tagged transactions only
+  const detailedFiltered = applyExpenseFilter(filterTransactions(filtered, 'detailed'), categories, 'opex_only')
 
-  // Full P&L (all expense types) for the addback schedule
-  const fullFiltered = filterTransactions(filtered, 'detailed')
-
-  const opexPL = buildPL(opexFiltered, categories)
-  const fullPL = buildPL(fullFiltered, categories)
-
-  // Addback schedule: all expense transactions NOT tagged as opex, grouped by category
-  const addbackTx = fullFiltered.filter(t =>
-    t.amount < 0 && t.expense_type !== 'opex'
-  )
-  const categoryMap = {}
-  categories.forEach(c => { categoryMap[c.id] = c })
-  const addbackByCategory = Object.values(
-    addbackTx.reduce((acc, t) => {
-      const cat = t.category_id ? categoryMap[t.category_id] : null
-      const catName = cat ? cat.name : 'Uncategorized'
-      const key = catName
-      if (!acc[key]) acc[key] = { name: catName, total: 0, types: new Set() }
-      acc[key].total += Math.abs(t.amount)
-      if (t.expense_type) acc[key].types.add(t.expense_type)
-      return acc
-    }, {})
-  ).sort((a, b) => b.total - a.total)
-  const totalAddbacks = addbackByCategory.reduce((s, r) => s + r.total, 0)
+  const pl = buildPL(detailedFiltered, categories)
 
   // Annualization: count distinct months with data, scale to 12
-  const monthsWithData = new Set(opexFiltered.map(t => t.date.slice(0, 7))).size || 1
+  const monthsWithData = new Set(detailedFiltered.map(t => t.date.slice(0, 7))).size || 1
   const annFactor = annualize && monthsWithData < 12 ? 12 / monthsWithData : 1
   const isAnnualized = annFactor > 1
 
   function ann(val) { return val * annFactor }
 
   // Annualized P&L figures
-  const annIncome = opexPL.income.map(([name, amt]) => [name, ann(amt)])
-  const annExpenses = opexPL.expenses.map(([name, amt]) => [name, ann(amt)])
-  const annTotalIncome = ann(opexPL.totalIncome)
-  const annTotalExpenses = ann(opexPL.totalExpenses)
+  const annIncome = pl.income.map(([name, amt]) => [name, ann(amt)])
+  const annExpenses = pl.expenses.map(([name, amt]) => [name, ann(amt)])
+  const annTotalIncome = ann(pl.totalIncome)
+  const annTotalExpenses = ann(pl.totalExpenses)
   const normalizedNOI = annTotalIncome - annTotalExpenses
 
   const impliedValue = capRate ? (normalizedNOI / (parseFloat(capRate) / 100)) : null
@@ -173,21 +150,21 @@ export default function DealRoomPage() {
             Gross Revenue{isAnnualized ? ' (Ann.)' : ''}
           </p>
           <p className="text-2xl font-bold text-emerald-700">{formatCurrency(annTotalIncome)}</p>
-          {isAnnualized && <p className="text-xs text-emerald-600 mt-1">Actual: {formatCurrency(opexPL.totalIncome)}</p>}
+          {isAnnualized && <p className="text-xs text-emerald-600 mt-1">Actual: {formatCurrency(pl.totalIncome)}</p>}
         </div>
         <div className="bg-red-50 border border-red-200 rounded-xl p-4">
           <p className="text-xs font-semibold text-red-700 uppercase tracking-wider mb-1">
             Operating Expenses{isAnnualized ? ' (Ann.)' : ''}
           </p>
           <p className="text-2xl font-bold text-red-700">{formatCurrency(annTotalExpenses)}</p>
-          {isAnnualized && <p className="text-xs text-red-600 mt-1">Actual: {formatCurrency(opexPL.totalExpenses)}</p>}
+          {isAnnualized && <p className="text-xs text-red-600 mt-1">Actual: {formatCurrency(pl.totalExpenses)}</p>}
         </div>
         <div className={`border rounded-xl p-4 ${normalizedNOI >= 0 ? 'bg-blue-50 border-blue-200' : 'bg-red-50 border-red-200'}`}>
           <p className={`text-xs font-semibold uppercase tracking-wider mb-1 ${normalizedNOI >= 0 ? 'text-blue-700' : 'text-red-700'}`}>
             Normalized NOI{isAnnualized ? ' (Ann.)' : ''}
           </p>
           <p className={`text-2xl font-bold ${normalizedNOI >= 0 ? 'text-blue-700' : 'text-red-700'}`}>{formatCurrency(normalizedNOI)}</p>
-          {isAnnualized && <p className={`text-xs mt-1 ${normalizedNOI >= 0 ? 'text-blue-600' : 'text-red-600'}`}>Actual: {formatCurrency(opexPL.noi)}</p>}
+          {isAnnualized && <p className={`text-xs mt-1 ${normalizedNOI >= 0 ? 'text-blue-600' : 'text-red-600'}`}>Actual: {formatCurrency(pl.noi)}</p>}
         </div>
       </div>
 
@@ -219,103 +196,43 @@ export default function DealRoomPage() {
         </div>
       )}
 
-      <div className="grid grid-cols-2 gap-6">
-        {/* Normalized Operating P&L */}
-        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-100 bg-slate-50">
-            <h2 className="font-semibold text-slate-900 text-sm">Normalized Operating P&L</h2>
-            <p className="text-xs text-slate-500 mt-0.5">OpEx only — for bank & buyer review</p>
-          </div>
-          <div className="p-5 space-y-4">
-            <div>
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Revenue</p>
-              {annIncome.map(([name, amt]) => (
-                <div key={name} className="flex justify-between text-sm py-0.5">
-                  <span className="text-slate-600">{name}</span>
-                  <span className="font-mono text-emerald-600">{formatCurrency(amt)}</span>
-                </div>
-              ))}
-              <div className="flex justify-between text-sm font-semibold pt-2 border-t border-slate-100 mt-2">
-                <span>Total Revenue</span>
-                <span className="font-mono text-emerald-600">{formatCurrency(annTotalIncome)}</span>
-              </div>
-            </div>
-            <div>
-              <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Operating Expenses</p>
-              {annExpenses.map(([name, amt]) => (
-                <div key={name} className="flex justify-between text-sm py-0.5">
-                  <span className="text-slate-600">{name}</span>
-                  <span className="font-mono text-red-500">{formatCurrency(amt)}</span>
-                </div>
-              ))}
-              <div className="flex justify-between text-sm font-semibold pt-2 border-t border-slate-100 mt-2">
-                <span>Total OpEx</span>
-                <span className="font-mono text-red-500">{formatCurrency(annTotalExpenses)}</span>
-              </div>
-            </div>
-            <div className={`rounded-lg p-3 ${normalizedNOI >= 0 ? 'bg-blue-50 border border-blue-200' : 'bg-red-50 border border-red-200'}`}>
-              <div className="flex justify-between font-bold text-sm">
-                <span>NOI{isAnnualized ? ' (Annualized)' : ''}</span>
-                <span className={`font-mono ${normalizedNOI >= 0 ? 'text-blue-700' : 'text-red-700'}`}>{formatCurrency(normalizedNOI)}</span>
-              </div>
-            </div>
-          </div>
+      <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+        <div className="px-5 py-4 border-b border-slate-100 bg-slate-50">
+          <h2 className="font-semibold text-slate-900 text-sm">P&L Statement</h2>
+          <p className="text-xs text-slate-500 mt-0.5">Detailed accrual view — for bank & buyer review</p>
         </div>
-
-        {/* Addback Schedule */}
-        <div className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-          <div className="px-5 py-4 border-b border-slate-100 bg-slate-50">
-            <h2 className="font-semibold text-slate-900 text-sm">Add-Back & Non-Recurring Schedule</h2>
-            <p className="text-xs text-slate-500 mt-0.5">All non-OpEx expenses — excluded from normalized NOI</p>
+        <div className="p-5 space-y-4">
+          <div>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Revenue</p>
+            {annIncome.map(([name, amt]) => (
+              <div key={name} className="flex justify-between text-sm py-0.5">
+                <span className="text-slate-600">{name}</span>
+                <span className="font-mono text-emerald-600">{formatCurrency(amt)}</span>
+              </div>
+            ))}
+            <div className="flex justify-between text-sm font-semibold pt-2 border-t border-slate-100 mt-2">
+              <span>Total Revenue</span>
+              <span className="font-mono text-emerald-600">{formatCurrency(annTotalIncome)}</span>
+            </div>
           </div>
-          <div className="p-5">
-            {addbackByCategory.length === 0 ? (
-              <p className="text-sm text-slate-400">All expenses in this period are tagged as OpEx.</p>
-            ) : (
-              <table className="w-full text-sm">
-                <thead>
-                  <tr className="border-b border-slate-100">
-                    <th className="text-left py-1.5 text-xs font-semibold text-slate-500">Category</th>
-                    <th className="text-left py-1.5 text-xs font-semibold text-slate-500">Tags</th>
-                    <th className="text-right py-1.5 text-xs font-semibold text-slate-500">Amount</th>
-                  </tr>
-                </thead>
-                <tbody className="divide-y divide-slate-50">
-                  {addbackByCategory.map(row => (
-                    <tr key={row.name}>
-                      <td className="py-1.5 text-slate-600 pr-2">{row.name}</td>
-                      <td className="py-1.5">
-                        <div className="flex flex-wrap gap-1">
-                          {row.types.size === 0 ? (
-                            <span className="text-xs px-1.5 py-0.5 rounded font-medium bg-slate-100 text-slate-500">Untagged</span>
-                          ) : (
-                            [...row.types].map(type => (
-                              <span key={type} className={`text-xs px-1.5 py-0.5 rounded font-medium ${
-                                type === 'one_time' ? 'bg-orange-50 text-orange-700' :
-                                type === 'capex' ? 'bg-amber-50 text-amber-700' :
-                                type === 'owner_addback' ? 'bg-purple-50 text-purple-700' :
-                                'bg-slate-100 text-slate-500'
-                              }`}>
-                                {type === 'one_time' ? 'One-Time' :
-                                 type === 'capex' ? 'CapEx' :
-                                 type === 'owner_addback' ? 'Add-Back' : type}
-                              </span>
-                            ))
-                          )}
-                        </div>
-                      </td>
-                      <td className="py-1.5 text-right font-mono text-slate-600">{formatCurrency(row.total)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-                <tfoot>
-                  <tr className="border-t border-slate-200">
-                    <td colSpan={2} className="py-2 text-sm font-semibold">Total Add-Backs</td>
-                    <td className="py-2 text-right font-mono font-semibold text-slate-900">{formatCurrency(totalAddbacks)}</td>
-                  </tr>
-                </tfoot>
-              </table>
-            )}
+          <div>
+            <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Expenses</p>
+            {annExpenses.map(([name, amt]) => (
+              <div key={name} className="flex justify-between text-sm py-0.5">
+                <span className="text-slate-600">{name}</span>
+                <span className="font-mono text-red-500">{formatCurrency(amt)}</span>
+              </div>
+            ))}
+            <div className="flex justify-between text-sm font-semibold pt-2 border-t border-slate-100 mt-2">
+              <span>Total Expenses</span>
+              <span className="font-mono text-red-500">{formatCurrency(annTotalExpenses)}</span>
+            </div>
+          </div>
+          <div className={`rounded-lg p-3 ${normalizedNOI >= 0 ? 'bg-blue-50 border border-blue-200' : 'bg-red-50 border border-red-200'}`}>
+            <div className="flex justify-between font-bold text-sm">
+              <span>NOI{isAnnualized ? ' (Annualized)' : ''}</span>
+              <span className={`font-mono ${normalizedNOI >= 0 ? 'text-blue-700' : 'text-red-700'}`}>{formatCurrency(normalizedNOI)}</span>
+            </div>
           </div>
         </div>
       </div>
