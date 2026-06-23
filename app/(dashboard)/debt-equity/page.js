@@ -26,6 +26,7 @@ export default function DebtEquityPage() {
   const [companies, setCompanies] = useState([])
   const [transactions, setTransactions] = useState([])
   const [categories, setCategories] = useState([])
+  const [bankConfig, setBankConfig] = useState({ cats: new Map(), excl: new Map(), portfolioCats: new Set(), portfolioExcl: new Set() })
   const [loading, setLoading] = useState(true)
 
   const [showModal, setShowModal] = useState(false)
@@ -40,25 +41,53 @@ export default function DebtEquityPage() {
 
   async function loadAll() {
     setLoading(true)
-    const [{ data: lo }, { data: co }, { data: tx }, { data: cat }] = await Promise.all([
+    const [{ data: lo }, { data: co }, { data: tx }, { data: cat }, { data: bankCats }, { data: bankExcl }] = await Promise.all([
       supabase.from('loans').select('*').order('created_at'),
       supabase.from('companies').select('*').order('name'),
       supabase.from('transactions').select('*, categories(name, type)').order('date'),
       supabase.from('categories').select('*'),
+      supabase.from('bank_pl_categories').select('category_id, company_id'),
+      supabase.from('bank_pl_exclusions').select('transaction_id, company_id'),
     ])
     setLoans(lo || [])
     setCompanies(co || [])
     setTransactions(tx || [])
     setCategories(cat || [])
+
+    // Group Bank P&L config by entity (company_id null = portfolio-level)
+    const cats = new Map(), excl = new Map()
+    const portfolioCats = new Set(), portfolioExcl = new Set()
+    ;(bankCats || []).forEach(r => {
+      if (r.company_id == null) { portfolioCats.add(r.category_id); return }
+      if (!cats.has(r.company_id)) cats.set(r.company_id, new Set())
+      cats.get(r.company_id).add(r.category_id)
+    })
+    ;(bankExcl || []).forEach(r => {
+      if (r.company_id == null) { portfolioExcl.add(r.transaction_id); return }
+      if (!excl.has(r.company_id)) excl.set(r.company_id, new Set())
+      excl.get(r.company_id).add(r.transaction_id)
+    })
+    setBankConfig({ cats, excl, portfolioCats, portfolioExcl })
+
     setLoading(false)
   }
 
-  // ── Per-entity NOI (YTD, opex only) for DSCR ────────────────────
+  // ── Per-entity NOI (YTD, Bank P&L only) for DSCR ─────────────────
+  // Uses the entity's own Bank P&L selections, falling back to the
+  // portfolio-level config when the entity has none — matching the
+  // Deal Room / Bank P&L report so debt service & non-opex are excluded.
   function entityNOI(companyId) {
     const from = `${CURRENT_YEAR}-01-01`
     const to   = `${CURRENT_YEAR}-${String(CURRENT_MONTH).padStart(2, '0')}-31`
+    // Use the entity's own config when it has one; otherwise fall back to
+    // portfolio-level — decided atomically so cats & exclusions stay paired.
+    const hasOwnConfig = bankConfig.cats.has(companyId)
+    const includedCats = hasOwnConfig ? bankConfig.cats.get(companyId) : bankConfig.portfolioCats
+    const excludedTxs  = hasOwnConfig ? (bankConfig.excl.get(companyId) || new Set()) : bankConfig.portfolioExcl
     const base = transactions.filter(t => t.company_id === companyId && t.date >= from && t.date <= to)
-    const filtered = filterTransactions(base, 'detailed')
+    const filtered = filterTransactions(base, 'detailed').filter(t =>
+      includedCats.has(t.category_id) && !excludedTxs.has(t.id)
+    )
     const pl = buildPL(filtered, categories)
     // Annualize YTD
     return CURRENT_MONTH > 0 ? (pl.noi / CURRENT_MONTH) * 12 : pl.noi

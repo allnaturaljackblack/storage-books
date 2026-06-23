@@ -1,7 +1,7 @@
 'use client'
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { filterTransactions, applyExpenseFilter, buildPL, formatCurrency } from '@/lib/reports/pl'
+import { filterTransactions, buildPL, formatCurrency } from '@/lib/reports/pl'
 
 const CURRENT_YEAR = new Date().getFullYear()
 const YEARS = [CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR - 2]
@@ -11,6 +11,8 @@ export default function DealRoomPage() {
   const [companies, setCompanies] = useState([])
   const [categories, setCategories] = useState([])
   const [loading, setLoading] = useState(true)
+  const [bankIncludedCats, setBankIncludedCats] = useState(new Set())
+  const [bankExcludedTxs, setBankExcludedTxs] = useState(new Set())
 
   const [companyFilter, setCompanyFilter] = useState('all')
   const [year, setYear] = useState(CURRENT_YEAR)
@@ -35,6 +37,24 @@ export default function DealRoomPage() {
     setLoading(false)
   }
 
+  // Load the Bank P&L config for the selected entity ('all' = portfolio/null),
+  // mirroring the Bank P&L report so the two screens stay in sync.
+  const loadBankConfig = useCallback(async (entityId) => {
+    const isPortfolio = entityId === 'all'
+    const [{ data: cats }, { data: excl }] = await Promise.all([
+      isPortfolio
+        ? supabase.from('bank_pl_categories').select('category_id').is('company_id', null)
+        : supabase.from('bank_pl_categories').select('category_id').eq('company_id', entityId),
+      isPortfolio
+        ? supabase.from('bank_pl_exclusions').select('transaction_id').is('company_id', null)
+        : supabase.from('bank_pl_exclusions').select('transaction_id').eq('company_id', entityId),
+    ])
+    setBankIncludedCats(new Set((cats || []).map(c => c.category_id)))
+    setBankExcludedTxs(new Set((excl || []).map(e => e.transaction_id)))
+  }, [])
+
+  useEffect(() => { loadBankConfig(companyFilter) }, [companyFilter, loadBankConfig])
+
   const dateFrom = `${year}-01-01`
   const dateTo = `${year}-12-31`
 
@@ -44,8 +64,10 @@ export default function DealRoomPage() {
     return true
   })
 
-  // Deal room = detailed P&L (accrual), opex-tagged transactions only
-  const detailedFiltered = applyExpenseFilter(filterTransactions(filtered, 'detailed'), categories, 'opex_only')
+  // Deal room = detailed P&L (accrual), Bank P&L categories only
+  const detailedFiltered = filterTransactions(filtered, 'detailed').filter(t =>
+    bankIncludedCats.has(t.category_id) && !bankExcludedTxs.has(t.id)
+  )
 
   const pl = buildPL(detailedFiltered, categories)
 
