@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { filterTransactions, buildPL, formatCurrency } from '@/lib/reports/pl'
+import { buildPL, formatCurrency } from '@/lib/reports/pl'
 
 const CURRENT_YEAR = new Date().getFullYear()
 const CURRENT_MONTH = new Date().getMonth() + 1
@@ -84,8 +84,10 @@ export default function DebtEquityPage() {
     const hasOwnConfig = bankConfig.cats.has(companyId)
     const includedCats = hasOwnConfig ? bankConfig.cats.get(companyId) : bankConfig.portfolioCats
     const excludedTxs  = hasOwnConfig ? (bankConfig.excl.get(companyId) || new Set()) : bankConfig.portfolioExcl
-    const base = transactions.filter(t => t.company_id === companyId && t.date >= from && t.date <= to)
-    const filtered = filterTransactions(base, 'detailed').filter(t =>
+    // Raw transactions filtered to Bank P&L checked items (no source
+    // filter) — identical to the Bank P&L report / Deal Room / Overview.
+    const filtered = transactions.filter(t =>
+      t.company_id === companyId && t.date >= from && t.date <= to &&
       includedCats.has(t.category_id) && !excludedTxs.has(t.id)
     )
     const pl = buildPL(filtered, categories)

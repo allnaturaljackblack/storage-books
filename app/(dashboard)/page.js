@@ -2,10 +2,11 @@
 import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/utils/supabase/client'
-import { filterTransactions, buildPL, formatCurrency } from '@/lib/reports/pl'
+import { buildPL, formatCurrency } from '@/lib/reports/pl'
 
 const CURRENT_YEAR = new Date().getFullYear()
 const CURRENT_MONTH = new Date().getMonth() + 1
+const EMPTY_SET = new Set()
 
 function monthPrefix(year, month) {
   return `${year}-${String(month).padStart(2, '0')}`
@@ -14,6 +15,11 @@ function monthPrefix(year, month) {
 function pctChange(current, prior) {
   if (!prior || prior === 0) return null
   return ((current - prior) / Math.abs(prior)) * 100
+}
+
+function dscrColor(v) {
+  if (v === null || v === undefined) return 'text-slate-300'
+  return v >= 1.25 ? 'text-emerald-600' : v >= 1.0 ? 'text-amber-500' : 'text-red-600'
 }
 
 function PctBadge({ value, invertColor }) {
@@ -32,6 +38,8 @@ export default function DashboardPage() {
   const [categories, setCategories] = useState([])
   const [accounts, setAccounts] = useState([])
   const [balances, setBalances] = useState([])
+  const [loans, setLoans] = useState([])
+  const [bankConfig, setBankConfig] = useState({ cats: new Map(), excl: new Map(), portfolioCats: new Set(), portfolioExcl: new Set() })
   const [uncategorized, setUncategorized] = useState(0)
   const [loading, setLoading] = useState(true)
 
@@ -41,18 +49,38 @@ export default function DashboardPage() {
 
   async function loadAll() {
     setLoading(true)
-    const [{ data: tx }, { data: co }, { data: cat }, { data: acc }, { data: bal }] = await Promise.all([
+    const [{ data: tx }, { data: co }, { data: cat }, { data: acc }, { data: bal }, { data: lo }, { data: bankCats }, { data: bankExcl }] = await Promise.all([
       supabase.from('transactions').select('*, categories(name, type)').order('date', { ascending: false }),
       supabase.from('companies').select('*').order('name'),
       supabase.from('categories').select('*'),
       supabase.from('accounts').select('*'),
       supabase.from('monthly_balances').select('*'),
+      supabase.from('loans').select('*'),
+      supabase.from('bank_pl_categories').select('category_id, company_id'),
+      supabase.from('bank_pl_exclusions').select('transaction_id, company_id'),
     ])
     setTransactions(tx || [])
     setCompanies(co || [])
     setCategories(cat || [])
     setAccounts(acc || [])
     setBalances(bal || [])
+    setLoans(lo || [])
+
+    // Group Bank P&L config by entity (company_id null = portfolio-level)
+    const cats = new Map(), excl = new Map()
+    const portfolioCats = new Set(), portfolioExcl = new Set()
+    ;(bankCats || []).forEach(r => {
+      if (r.company_id == null) { portfolioCats.add(r.category_id); return }
+      if (!cats.has(r.company_id)) cats.set(r.company_id, new Set())
+      cats.get(r.company_id).add(r.category_id)
+    })
+    ;(bankExcl || []).forEach(r => {
+      if (r.company_id == null) { portfolioExcl.add(r.transaction_id); return }
+      if (!excl.has(r.company_id)) excl.set(r.company_id, new Set())
+      excl.get(r.company_id).add(r.transaction_id)
+    })
+    setBankConfig({ cats, excl, portfolioCats, portfolioExcl })
+
     setUncategorized((tx || []).filter(t => !t.category_id).length)
     setLoading(false)
   }
@@ -66,60 +94,91 @@ export default function DashboardPage() {
   }, 0)
   const hasCashData = accounts.length > 0 && balances.some(b => accounts.find(a => a.id === b.account_id))
 
-  // ── NOI: current month, last month, same month last year ─────────
-  function detailedPL(year, month) {
-    return buildPL(
-      filterTransactions(transactions.filter(t => t.date.startsWith(monthPrefix(year, month))), 'detailed'),
-      categories
-    )
+  // ── Reference month: latest month (≤ current) that has data ──────
+  // If the current month has no transactions yet, fall back to the most
+  // recent prior month that does (e.g. June with no data → May).
+  const currentKey = monthPrefix(CURRENT_YEAR, CURRENT_MONTH)
+  const monthsWithData = [...new Set(transactions.map(t => t.date.slice(0, 7)))]
+    .filter(m => m <= currentKey)
+    .sort()
+  const refKey   = monthsWithData[monthsWithData.length - 1] || currentKey
+  const refYear  = Number(refKey.slice(0, 4))
+  const refMonth = Number(refKey.slice(5, 7))
+  const refPrev  = refMonth === 1 ? { y: refYear - 1, m: 12 } : { y: refYear, m: refMonth - 1 }
+  const monthsElapsed = refMonth // months of YTD data, for annualizing
+
+  // ── NOI = income − operating expenses (Bank P&L checked items) ────
+  // A transaction counts only if its category is checked on the Bank P&L
+  // and it isn't individually excluded — same logic as the Bank P&L
+  // report / Deal Room. This inherently excludes CapEx and debt service.
+  function bankSetsFor(companyId) {
+    // Per-entity config when it exists; otherwise fall back to portfolio
+    if (companyId && bankConfig.cats.has(companyId)) {
+      return { inc: bankConfig.cats.get(companyId), exc: bankConfig.excl.get(companyId) || EMPTY_SET }
+    }
+    return { inc: bankConfig.portfolioCats, exc: bankConfig.portfolioExcl }
   }
 
-  const prevMonth = CURRENT_MONTH === 1 ? { y: CURRENT_YEAR - 1, m: 12 } : { y: CURRENT_YEAR, m: CURRENT_MONTH - 1 }
+  // companyId omitted = global/portfolio; month omitted = full-year YTD
+  function noiPL({ year, month, companyId } = {}) {
+    const { inc, exc } = bankSetsFor(companyId)
+    const scoped = transactions.filter(t => {
+      if (companyId && t.company_id !== companyId) return false
+      const inPeriod = month != null
+        ? t.date.startsWith(monthPrefix(year, month))
+        : t.date.startsWith(`${year}-`)
+      return inPeriod && inc.has(t.category_id) && !exc.has(t.id)
+    })
+    return buildPL(scoped, categories)
+  }
 
-  const currentPL  = detailedPL(CURRENT_YEAR, CURRENT_MONTH)
-  const priorPL    = detailedPL(prevMonth.y, prevMonth.m)
-  const priorYearPL = detailedPL(CURRENT_YEAR - 1, CURRENT_MONTH)
+  const monthPL     = noiPL({ year: refYear, month: refMonth })
+  const priorPL     = noiPL({ year: refPrev.y, month: refPrev.m })
+  const priorYearPL = noiPL({ year: refYear - 1, month: refMonth })
+  const ytdPL       = noiPL({ year: refYear })
 
-  const noiVsLastMonth   = pctChange(currentPL.noi, priorPL.noi)
-  const noiVsLastYear    = pctChange(currentPL.noi, priorYearPL.noi)
-  const revenueVsLastMonth = pctChange(currentPL.totalIncome, priorPL.totalIncome)
+  const noiVsLastMonth = pctChange(monthPL.noi, priorPL.noi)
+  const noiVsLastYear  = pctChange(monthPL.noi, priorYearPL.noi)
 
-  // ── DSCR ─────────────────────────────────────────────────────────
-  // YTD loan service payments (interest + principal categories)
-  const loanServiceCategories = categories.filter(c =>
-    c.name?.toLowerCase().includes('loan service')
-  )
-  const loanCatIds = new Set(loanServiceCategories.map(c => c.id))
-  const ytdPrefix = `${CURRENT_YEAR}-`
-  const monthsElapsed = CURRENT_MONTH
+  // ── DSCR = NOI ÷ debt obligation (scheduled loan payments) ────────
+  // Debt obligation comes from the Debt & Equity loans table.
+  function monthlyDebt(companyId) {
+    return loans
+      .filter(l => !companyId || l.company_id === companyId)
+      .reduce((s, l) => s + (parseFloat(l.monthly_payment) || 0), 0)
+  }
 
-  const ytdDebtService = transactions
-    .filter(t => t.date.startsWith(ytdPrefix) && loanCatIds.has(t.category_id) && t.amount < 0)
-    .reduce((s, t) => s + Math.abs(parseFloat(t.amount)), 0)
+  // { monthly, annual } DSCR; null when the scope has no loan obligation
+  function dscrFor(companyId) {
+    const debt = monthlyDebt(companyId)
+    if (!(debt > 0)) return { monthly: null, annual: null }
+    const monthNOI = noiPL({ year: refYear, month: refMonth, companyId }).noi
+    const ytdNOI   = noiPL({ year: refYear, companyId }).noi
+    return {
+      monthly: monthNOI / debt,                                        // ref-month NOI ÷ monthly payment
+      annual: monthsElapsed > 0 ? (ytdNOI / monthsElapsed) / debt : null, // annualized NOI ÷ annual payment
+    }
+  }
 
-  const annualizedDebtService = monthsElapsed > 0 ? (ytdDebtService / monthsElapsed) * 12 : 0
-
-  const ytdTx = filterTransactions(transactions.filter(t => t.date.startsWith(ytdPrefix)), 'detailed')
-  const ytdPL = buildPL(ytdTx, categories)
-  const annualizedNOI = monthsElapsed > 0 ? (ytdPL.noi / monthsElapsed) * 12 : 0
-  const dscr = annualizedDebtService > 0 ? annualizedNOI / annualizedDebtService : null
-
-  // ── Monthly P&L for current month ───────────────────────────────
-  const monthPL = currentPL
+  const portfolioDSCR = dscrFor(null)
 
   // Recent transactions
   const recent = transactions.slice(0, 8)
 
   if (loading) return <div className="p-8 text-slate-400 text-sm">Loading...</div>
 
-  const currentMonthName = new Date(CURRENT_YEAR, CURRENT_MONTH - 1).toLocaleString('default', { month: 'long' })
-  const prevMonthName = new Date(prevMonth.y, prevMonth.m - 1).toLocaleString('default', { month: 'long' })
+  const refMonthName  = new Date(refYear, refMonth - 1).toLocaleString('default', { month: 'long' })
+  const prevMonthName = new Date(refPrev.y, refPrev.m - 1).toLocaleString('default', { month: 'long' })
+  const isStale = refKey !== currentKey
 
   return (
     <div className="p-8">
       <div className="mb-6">
         <h1 className="text-xl font-bold text-slate-900">Portfolio Overview</h1>
-        <p className="text-slate-500 text-sm mt-0.5">{CURRENT_YEAR} — {currentMonthName}</p>
+        <p className="text-slate-500 text-sm mt-0.5">
+          {refYear} — {refMonthName}
+          {isStale && <span className="text-slate-400"> · latest month with data</span>}
+        </p>
       </div>
 
       {/* Setup / action alerts */}
@@ -168,7 +227,7 @@ export default function DashboardPage() {
 
           {/* Current month NOI */}
           <div className="px-6">
-            <p className="text-xs font-medium text-slate-400 mb-1">{currentMonthName} NOI</p>
+            <p className="text-xs font-medium text-slate-400 mb-1">{refMonthName} NOI</p>
             <p className={`text-2xl font-bold font-mono ${monthPL.noi >= 0 ? 'text-blue-600' : 'text-red-600'}`}>
               {formatCurrency(monthPL.noi)}
             </p>
@@ -181,7 +240,7 @@ export default function DashboardPage() {
             {noiVsLastYear !== null && (
               <div className="flex items-center gap-2 mt-0.5">
                 <PctBadge value={noiVsLastYear} />
-                <span className="text-xs text-slate-400">vs {CURRENT_YEAR - 1}</span>
+                <span className="text-xs text-slate-400">vs {refYear - 1}</span>
               </div>
             )}
           </div>
@@ -199,23 +258,31 @@ export default function DashboardPage() {
 
           {/* DSCR */}
           <div className="pl-6">
-            <p className="text-xs font-medium text-slate-400 mb-1">DSCR <span className="font-normal">(annualized)</span></p>
-            {dscr !== null ? (
+            <p className="text-xs font-medium text-slate-400 mb-1">DSCR</p>
+            {portfolioDSCR.annual !== null || portfolioDSCR.monthly !== null ? (
               <>
-                <p className={`text-2xl font-bold font-mono ${dscr >= 1.25 ? 'text-emerald-600' : dscr >= 1.0 ? 'text-amber-500' : 'text-red-600'}`}>
-                  {dscr.toFixed(2)}x
-                </p>
-                <p className="text-xs mt-1">
-                  <span className={`font-medium ${dscr >= 1.25 ? 'text-emerald-600' : dscr >= 1.0 ? 'text-amber-500' : 'text-red-600'}`}>
-                    {dscr >= 1.25 ? 'Strong' : dscr >= 1.0 ? 'Adequate' : 'Below threshold'}
-                  </span>
-                  <span className="text-slate-400"> — lenders target ≥1.25x</span>
-                </p>
+                <div className="flex items-baseline gap-4">
+                  <div>
+                    <p className={`text-2xl font-bold font-mono ${dscrColor(portfolioDSCR.annual)}`}>
+                      {portfolioDSCR.annual !== null ? `${portfolioDSCR.annual.toFixed(2)}x` : '—'}
+                    </p>
+                    <p className="text-xs text-slate-400">annual</p>
+                  </div>
+                  <div>
+                    <p className={`text-xl font-bold font-mono ${dscrColor(portfolioDSCR.monthly)}`}>
+                      {portfolioDSCR.monthly !== null ? `${portfolioDSCR.monthly.toFixed(2)}x` : '—'}
+                    </p>
+                    <p className="text-xs text-slate-400">{refMonthName}</p>
+                  </div>
+                </div>
+                <p className="text-xs text-slate-400 mt-1">lenders target ≥1.25x</p>
               </>
             ) : (
               <>
                 <p className="text-lg font-medium text-slate-300">—</p>
-                <p className="text-xs text-slate-400 mt-1">Tag loan payments as "Loan Service"</p>
+                <Link href="/debt-equity" className="text-xs text-slate-400 hover:text-slate-600 mt-1 inline-block underline">
+                  Add loans in Debt &amp; Equity →
+                </Link>
               </>
             )}
           </div>
@@ -225,20 +292,13 @@ export default function DashboardPage() {
       {/* ── Per-entity NOI comparison ──────────────────────────── */}
       {companies.length > 0 && (
         <div className="mb-6">
-          <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Entity Comparison — {currentMonthName}</h2>
+          <h2 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">Entity Comparison — {refMonthName}</h2>
           <div className="grid gap-4" style={{ gridTemplateColumns: `repeat(${Math.min(companies.length, 3)}, 1fr)` }}>
             {companies.map(co => {
-              const coTx = filterTransactions(
-                transactions.filter(t => t.company_id === co.id && t.date.startsWith(monthPrefix(CURRENT_YEAR, CURRENT_MONTH))),
-                'detailed'
-              )
-              const coPL = buildPL(coTx, categories)
-              const coPriorTx = filterTransactions(
-                transactions.filter(t => t.company_id === co.id && t.date.startsWith(monthPrefix(prevMonth.y, prevMonth.m))),
-                'detailed'
-              )
-              const coPriorPL = buildPL(coPriorTx, categories)
+              const coPL = noiPL({ year: refYear, month: refMonth, companyId: co.id })
+              const coPriorPL = noiPL({ year: refPrev.y, month: refPrev.m, companyId: co.id })
               const coNOIPct = pctChange(coPL.noi, coPriorPL.noi)
+              const coDSCR = dscrFor(co.id)
               return (
                 <div key={co.id} className="bg-white rounded-xl border border-slate-200 p-5">
                   <h3 className="font-semibold text-slate-900 text-sm mb-3">{co.name}</h3>
@@ -258,6 +318,18 @@ export default function DashboardPage() {
                         <span className={`font-mono ${coPL.noi >= 0 ? 'text-blue-600' : 'text-red-600'}`}>{formatCurrency(coPL.noi)}</span>
                       </div>
                     </div>
+                    {(coDSCR.annual !== null || coDSCR.monthly !== null) && (
+                      <div className="flex justify-between text-sm border-t border-slate-100 pt-2">
+                        <span className="text-slate-500">DSCR</span>
+                        <span className="font-mono">
+                          <span className={dscrColor(coDSCR.annual)}>{coDSCR.annual !== null ? `${coDSCR.annual.toFixed(2)}x` : '—'}</span>
+                          <span className="text-slate-400 text-xs"> yr</span>
+                          <span className="text-slate-300"> · </span>
+                          <span className={dscrColor(coDSCR.monthly)}>{coDSCR.monthly !== null ? `${coDSCR.monthly.toFixed(2)}x` : '—'}</span>
+                          <span className="text-slate-400 text-xs"> mo</span>
+                        </span>
+                      </div>
+                    )}
                   </div>
                 </div>
               )

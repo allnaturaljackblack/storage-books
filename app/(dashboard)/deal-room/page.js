@@ -1,7 +1,7 @@
 'use client'
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
-import { filterTransactions, buildPL, formatCurrency } from '@/lib/reports/pl'
+import { buildPL, formatCurrency } from '@/lib/reports/pl'
 
 const CURRENT_YEAR = new Date().getFullYear()
 const YEARS = [CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR - 2]
@@ -64,8 +64,9 @@ export default function DealRoomPage() {
     return true
   })
 
-  // Deal room = detailed P&L (accrual), Bank P&L categories only
-  const detailedFiltered = filterTransactions(filtered, 'detailed').filter(t =>
+  // Deal room = Bank P&L checked items only (raw transactions, no source
+  // filter) — identical to the Bank P&L report / Overview NOI.
+  const detailedFiltered = filtered.filter(t =>
     bankIncludedCats.has(t.category_id) && !bankExcludedTxs.has(t.id)
   )
 
