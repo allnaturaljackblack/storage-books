@@ -171,14 +171,26 @@ export default function SettingsPage() {
   async function addCategory(e) {
     e.preventDefault()
     if (!newCategory.name.trim()) return
-    await supabase.from('categories').insert({ name: newCategory.name.trim(), type: newCategory.type, sort_order: 50 })
+    const { error } = await supabase.from('categories').insert({ name: newCategory.name.trim(), type: newCategory.type, sort_order: 50 })
+    if (error) {
+      alert(error.code === '23505'
+        ? `A category named "${newCategory.name.trim()}" already exists.`
+        : 'Error adding category: ' + error.message)
+      return
+    }
     setNewCategory({ name: '', type: 'expense' })
     await loadAll()
   }
 
   async function deleteCategory(id) {
     if (!confirm('Delete this category?')) return
-    await supabase.from('categories').delete().eq('id', id)
+    const { error } = await supabase.from('categories').delete().eq('id', id)
+    if (error) {
+      alert(error.code === '23503'
+        ? 'This category is still assigned to transactions and can’t be deleted. Reassign those transactions first.'
+        : 'Error deleting category: ' + error.message)
+      return
+    }
     await loadAll()
   }
 
