@@ -4,6 +4,15 @@ import { createClient } from '@/utils/supabase/client'
 
 const MATCH_TYPE_LABELS = { contains: 'Contains', starts_with: 'Starts with', exact: 'Exact match' }
 
+const TABS = [
+  { id: 'accounts', label: 'Chart of Accounts' },
+  { id: 'rules', label: 'Auto-Categorization' },
+  { id: 'sources', label: 'Transaction Sources' },
+  { id: 'entities', label: 'Companies / Entities' },
+  { id: 'branding', label: 'Report Branding' },
+  { id: 'account', label: 'Account' },
+]
+
 export default function SettingsPage() {
   const [companies, setCompanies] = useState([])
   const [categories, setCategories] = useState([])
@@ -12,6 +21,7 @@ export default function SettingsPage() {
   const [loading, setLoading] = useState(true)
   const [userRole, setUserRole] = useState(null)
   const [currentUser, setCurrentUser] = useState(null)
+  const [activeTab, setActiveTab] = useState('accounts')
 
   const [newCompany, setNewCompany] = useState('')
   const [newCategory, setNewCategory] = useState({ name: '', type: 'expense' })
@@ -157,28 +167,42 @@ export default function SettingsPage() {
   async function addCompany(e) {
     e.preventDefault()
     if (!newCompany.trim()) return
-    await supabase.from('companies').insert({ name: newCompany.trim() })
+    const { error } = await supabase.from('companies').insert({ name: newCompany.trim() })
+    if (error) { alert('Error adding entity: ' + error.message); return }
     setNewCompany('')
     await loadAll()
   }
 
   async function deleteCompany(id) {
     if (!confirm('Delete this company? All associated transactions will also be deleted.')) return
-    await supabase.from('companies').delete().eq('id', id)
+    const { error } = await supabase.from('companies').delete().eq('id', id)
+    if (error) { alert('Error deleting entity: ' + error.message); return }
     await loadAll()
   }
 
   async function addCategory(e) {
     e.preventDefault()
     if (!newCategory.name.trim()) return
-    await supabase.from('categories').insert({ name: newCategory.name.trim(), type: newCategory.type, sort_order: 50 })
+    const { error } = await supabase.from('categories').insert({ name: newCategory.name.trim(), type: newCategory.type, sort_order: 50 })
+    if (error) {
+      alert(error.code === '23505'
+        ? `A category named "${newCategory.name.trim()}" already exists.`
+        : 'Error adding category: ' + error.message)
+      return
+    }
     setNewCategory({ name: '', type: 'expense' })
     await loadAll()
   }
 
   async function deleteCategory(id) {
     if (!confirm('Delete this category?')) return
-    await supabase.from('categories').delete().eq('id', id)
+    const { error } = await supabase.from('categories').delete().eq('id', id)
+    if (error) {
+      alert(error.code === '23503'
+        ? 'This category is still assigned to transactions and can’t be deleted. Reassign those transactions first.'
+        : 'Error deleting category: ' + error.message)
+      return
+    }
     await loadAll()
   }
 
@@ -237,13 +261,28 @@ export default function SettingsPage() {
   const incomeCategories = categories.filter(c => c.type === 'income')
   const expenseCategories = categories.filter(c => c.type === 'expense')
 
+  // Category dropdown options, reused in the rule builder + rule editor
+  const categoryOptions = (
+    <>
+      <option value="">— None —</option>
+      <optgroup label="Income">
+        {incomeCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+      </optgroup>
+      <optgroup label="Expenses">
+        {expenseCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+      </optgroup>
+    </>
+  )
+
+  const selectCls = 'border border-slate-200 rounded-lg px-2.5 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-900'
+
   return (
-    <div className="p-8 max-w-2xl space-y-8">
-      <h1 className="text-xl font-bold text-slate-900">Settings</h1>
+    <div className="p-8 max-w-5xl">
+      <h1 className="text-xl font-bold text-slate-900 mb-6">Settings</h1>
 
       {/* Role setup */}
       {!userRole && (
-        <div className="bg-amber-50 border border-amber-200 rounded-xl p-5">
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-5 mb-6">
           <h3 className="font-semibold text-amber-900 mb-1">First-time setup</h3>
           <p className="text-sm text-amber-700 mb-3">No role assigned. Claim owner access to manage this workspace.</p>
           <button onClick={claimOwner} className="bg-amber-700 text-white text-sm px-4 py-2 rounded-lg hover:bg-amber-800">
@@ -252,373 +291,394 @@ export default function SettingsPage() {
         </div>
       )}
 
-      {/* Companies */}
-      <section className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100">
-          <h2 className="font-semibold text-slate-900">Companies / Entities</h2>
-          <p className="text-xs text-slate-500 mt-0.5">Your LLC entities</p>
-        </div>
-        <div className="p-5 space-y-3">
-          {companies.map(c => (
-            <div key={c.id} className="flex items-center justify-between">
-              <span className="text-sm text-slate-800">{c.name}</span>
-              {isOwner && <button onClick={() => deleteCompany(c.id)} className="text-xs text-slate-400 hover:text-red-500">Delete</button>}
-            </div>
-          ))}
-          {companies.length === 0 && <p className="text-sm text-slate-400">No companies yet.</p>}
-          {isOwner && (
-            <form onSubmit={addCompany} className="flex gap-2 mt-2">
-              <input value={newCompany} onChange={e => setNewCompany(e.target.value)} placeholder="e.g. Sunshine Storage LLC"
-                className="flex-1 border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900" />
-              <button type="submit" className="bg-slate-900 text-white text-sm px-4 py-1.5 rounded-lg hover:bg-slate-800">Add</button>
-            </form>
-          )}
-        </div>
-      </section>
-
-      {/* Sources */}
-      <section className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100">
-          <h2 className="font-semibold text-slate-900">Transaction Sources</h2>
-          <p className="text-xs text-slate-500 mt-0.5">Bank and credit card sources used across transactions, imports, and account reconciliation</p>
-        </div>
-        <div className="p-5 space-y-2">
-          {sources.length === 0 && <p className="text-sm text-slate-400">No sources yet.</p>}
-          {sources.map(s => (
-            <div key={s.id} className="flex items-center justify-between py-1">
-              {renamingSourceId === s.id ? (
-                <input
-                  autoFocus
-                  value={renameValue}
-                  onChange={e => setRenameValue(e.target.value)}
-                  onBlur={() => renameSource(s.id, s.name)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter') renameSource(s.id, s.name)
-                    if (e.key === 'Escape') setRenamingSourceId(null)
-                  }}
-                  className="flex-1 border border-slate-300 rounded-lg px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 mr-3"
-                />
-              ) : (
-                <span className="text-sm text-slate-700 font-mono bg-slate-50 px-2 py-0.5 rounded">{s.name}</span>
-              )}
-              {isOwner && renamingSourceId !== s.id && (
-                <div className="flex gap-3">
-                  <button
-                    onClick={() => { setRenamingSourceId(s.id); setRenameValue(s.name) }}
-                    className="text-xs text-slate-400 hover:text-slate-700"
-                  >
-                    Rename
-                  </button>
-                  <button
-                    onClick={() => deleteSource(s.id, s.name)}
-                    className="text-xs text-slate-400 hover:text-red-500"
-                  >
-                    Delete
-                  </button>
-                </div>
-              )}
-            </div>
-          ))}
-          {isOwner && (
-            <form onSubmit={addSource} className="flex gap-2 pt-2 border-t border-slate-100 mt-2">
-              <input
-                value={newSource}
-                onChange={e => setNewSource(e.target.value)}
-                placeholder="e.g. Chase Business Checking"
-                className="flex-1 border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
-              />
-              <button type="submit" className="bg-slate-900 text-white text-sm px-4 py-1.5 rounded-lg hover:bg-slate-800">
-                Add
+      <div className="flex flex-col sm:flex-row gap-6 items-start">
+        {/* Tab navigation */}
+        <nav className="sm:w-56 flex-shrink-0 w-full">
+          <div className="flex sm:flex-col gap-1 overflow-x-auto sm:sticky sm:top-8">
+            {TABS.map(t => (
+              <button
+                key={t.id}
+                onClick={() => setActiveTab(t.id)}
+                className={`text-left px-3 py-2 rounded-lg text-sm font-medium whitespace-nowrap transition-colors ${
+                  activeTab === t.id ? 'bg-slate-900 text-white' : 'text-slate-600 hover:bg-slate-100'
+                }`}
+              >
+                {t.label}
               </button>
-            </form>
+            ))}
+          </div>
+        </nav>
+
+        {/* Active panel */}
+        <div className="flex-1 min-w-0 w-full">
+
+          {/* ── Chart of Accounts ─────────────────────────────────── */}
+          {activeTab === 'accounts' && (
+            <section className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-100">
+                <h2 className="font-semibold text-slate-900">Chart of Accounts</h2>
+                <p className="text-xs text-slate-500 mt-0.5">Income and expense categories used across the app</p>
+              </div>
+              <div className="p-5 space-y-5">
+                {isOwner && (
+                  <form onSubmit={addCategory} className="flex flex-wrap items-center gap-2 bg-slate-50 border border-slate-200 rounded-lg p-3">
+                    <div className="inline-flex rounded-lg border border-slate-200 overflow-hidden bg-white">
+                      {['income', 'expense'].map(t => (
+                        <button
+                          type="button"
+                          key={t}
+                          onClick={() => setNewCategory(p => ({ ...p, type: t }))}
+                          className={`px-3 py-1.5 text-sm font-medium capitalize transition-colors ${
+                            newCategory.type === t
+                              ? (t === 'income' ? 'bg-emerald-600 text-white' : 'bg-slate-900 text-white')
+                              : 'text-slate-600 hover:bg-slate-50'
+                          }`}
+                        >
+                          {t}
+                        </button>
+                      ))}
+                    </div>
+                    <input
+                      value={newCategory.name}
+                      onChange={e => setNewCategory(p => ({ ...p, name: e.target.value }))}
+                      placeholder="New category name"
+                      className="flex-1 min-w-[12rem] border border-slate-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-900"
+                    />
+                    <button type="submit" className="bg-slate-900 text-white text-sm px-4 py-1.5 rounded-lg hover:bg-slate-800">Add</button>
+                  </form>
+                )}
+
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <CategoryColumn title="Income" items={incomeCategories} isOwner={isOwner} onDelete={deleteCategory} />
+                  <CategoryColumn title="Expenses" items={expenseCategories} isOwner={isOwner} onDelete={deleteCategory} />
+                </div>
+              </div>
+            </section>
           )}
-        </div>
-      </section>
 
-      {/* Auto-Categorization Rules */}
-      <section className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100">
-          <h2 className="font-semibold text-slate-900">Auto-Categorization Rules</h2>
-          <p className="text-xs text-slate-500 mt-0.5">Automatically categorize transactions on import by matching description keywords</p>
-        </div>
-        <div className="p-5 space-y-3">
-          {rules.length === 0 && <p className="text-sm text-slate-400">No rules yet. Add one below.</p>}
-          {rules.map(r => {
-            const scopedCompany = companies.find(c => c.id === r.company_id)
-            const isEditing = editingRuleId === r.id
-
-            if (isEditing && editingRule) {
-              return (
-                <form key={r.id} onSubmit={saveEditRule} className="bg-slate-50 rounded-lg p-3 space-y-2 border border-slate-200">
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <label className="block text-xs font-medium text-slate-500 mb-1">Keyword</label>
+          {/* ── Auto-Categorization Rules ─────────────────────────── */}
+          {activeTab === 'rules' && (
+            <section className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-100">
+                <h2 className="font-semibold text-slate-900">Auto-Categorization Rules</h2>
+                <p className="text-xs text-slate-500 mt-0.5">Automatically categorize transactions on import by matching description keywords</p>
+              </div>
+              <div className="p-5 space-y-4">
+                {isOwner && (
+                  <form onSubmit={addRule} className="bg-slate-50 border border-slate-200 rounded-lg p-4">
+                    <p className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-3">New rule</p>
+                    <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600 leading-8">
+                      <span>When a description</span>
+                      <select value={newRule.match_type} onChange={e => setNewRule(p => ({ ...p, match_type: e.target.value }))} className={selectCls}>
+                        <option value="contains">contains</option>
+                        <option value="starts_with">starts with</option>
+                        <option value="exact">exactly matches</option>
+                      </select>
                       <input
-                        value={editingRule.keyword}
-                        onChange={e => setEditingRule(p => ({ ...p, keyword: e.target.value }))}
-                        className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-900"
+                        value={newRule.keyword}
+                        onChange={e => setNewRule(p => ({ ...p, keyword: e.target.value }))}
+                        placeholder="e.g. PAYABLI"
+                        className="min-w-[9rem] border border-slate-200 rounded-lg px-3 py-1.5 text-sm bg-white font-mono focus:outline-none focus:ring-2 focus:ring-slate-900"
                       />
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-500 mb-1">Match Type</label>
-                      <select value={editingRule.match_type} onChange={e => setEditingRule(p => ({ ...p, match_type: e.target.value }))}
-                        className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-900">
-                        <option value="contains">Contains</option>
-                        <option value="starts_with">Starts with</option>
-                        <option value="exact">Exact match</option>
-                      </select>
-                    </div>
-                    <div>
-                      <label className="block text-xs font-medium text-slate-500 mb-1">Category</label>
-                      <select value={editingRule.category_id} onChange={e => setEditingRule(p => ({ ...p, category_id: e.target.value }))}
-                        className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-900">
-                        <option value="">— None —</option>
-                        <optgroup label="Income">
-                          {incomeCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </optgroup>
-                        <optgroup label="Expenses">
-                          {expenseCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </optgroup>
-                      </select>
-                    </div>
-                    <div className="col-span-2">
-                      <label className="block text-xs font-medium text-slate-500 mb-1">Facility</label>
-                      <select value={editingRule.company_id} onChange={e => setEditingRule(p => ({ ...p, company_id: e.target.value }))}
-                        className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm bg-white focus:outline-none focus:ring-2 focus:ring-slate-900">
-                        <option value="">All Facilities</option>
+                      <span>for</span>
+                      <select value={newRule.company_id} onChange={e => setNewRule(p => ({ ...p, company_id: e.target.value }))} className={selectCls}>
+                        <option value="">all facilities</option>
                         {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                       </select>
+                      <span>categorize as</span>
+                      <select value={newRule.category_id} onChange={e => setNewRule(p => ({ ...p, category_id: e.target.value }))} className={selectCls}>
+                        {categoryOptions}
+                      </select>
+                      <button type="submit" disabled={!newRule.keyword.trim()}
+                        className="bg-slate-900 text-white text-sm px-4 py-1.5 rounded-lg hover:bg-slate-800 disabled:opacity-40">
+                        Add rule
+                      </button>
                     </div>
-                  </div>
-                  <div className="flex gap-2">
-                    <button type="submit" className="bg-slate-900 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800">Save</button>
-                    <button type="button" onClick={() => { setEditingRuleId(null); setEditingRule(null) }}
-                      className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">Cancel</button>
-                  </div>
-                </form>
-              )
-            }
+                  </form>
+                )}
 
-            return (
-              <div key={r.id} className="flex items-center justify-between py-1.5 border-b border-slate-50 last:border-0">
-                <div className="flex items-center gap-2 flex-wrap">
-                  <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-mono">{r.keyword}</span>
-                  <span className="text-xs text-slate-400">{MATCH_TYPE_LABELS[r.match_type]}</span>
-                  <span className="text-xs text-slate-400">→</span>
-                  {r.categories && <span className="text-xs text-slate-700 font-medium">{r.categories.name}</span>}
-                  {scopedCompany ? (
-                    <span className="text-xs bg-violet-50 text-violet-700 border border-violet-200 px-1.5 py-0.5 rounded font-medium">
-                      {scopedCompany.name}
-                    </span>
-                  ) : (
-                    <span className="text-xs text-slate-400 italic">All facilities</span>
-                  )}
-                </div>
-                {isOwner && (
-                  <div className="flex gap-3 ml-3 flex-shrink-0">
-                    <button onClick={() => startEditRule(r)} className="text-xs text-slate-400 hover:text-slate-700">Edit</button>
-                    <button onClick={() => deleteRule(r.id)} className="text-xs text-slate-400 hover:text-red-500">Delete</button>
+                <div>
+                  {rules.length === 0 && <p className="text-sm text-slate-400">No rules yet. Add one above.</p>}
+                  <div className="divide-y divide-slate-50">
+                    {rules.map(r => {
+                      const scopedCompany = companies.find(c => c.id === r.company_id)
+                      const isEditing = editingRuleId === r.id
+
+                      if (isEditing && editingRule) {
+                        return (
+                          <form key={r.id} onSubmit={saveEditRule} className="bg-slate-50 rounded-lg p-4 my-2 border border-slate-200">
+                            <div className="flex flex-wrap items-center gap-2 text-sm text-slate-600 leading-8">
+                              <span>When a description</span>
+                              <select value={editingRule.match_type} onChange={e => setEditingRule(p => ({ ...p, match_type: e.target.value }))} className={selectCls}>
+                                <option value="contains">contains</option>
+                                <option value="starts_with">starts with</option>
+                                <option value="exact">exactly matches</option>
+                              </select>
+                              <input
+                                value={editingRule.keyword}
+                                onChange={e => setEditingRule(p => ({ ...p, keyword: e.target.value }))}
+                                className="min-w-[9rem] border border-slate-200 rounded-lg px-3 py-1.5 text-sm bg-white font-mono focus:outline-none focus:ring-2 focus:ring-slate-900"
+                              />
+                              <span>for</span>
+                              <select value={editingRule.company_id} onChange={e => setEditingRule(p => ({ ...p, company_id: e.target.value }))} className={selectCls}>
+                                <option value="">all facilities</option>
+                                {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                              </select>
+                              <span>categorize as</span>
+                              <select value={editingRule.category_id} onChange={e => setEditingRule(p => ({ ...p, category_id: e.target.value }))} className={selectCls}>
+                                {categoryOptions}
+                              </select>
+                            </div>
+                            <div className="flex gap-2 mt-3">
+                              <button type="submit" className="bg-slate-900 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800">Save</button>
+                              <button type="button" onClick={() => { setEditingRuleId(null); setEditingRule(null) }}
+                                className="text-xs px-3 py-1.5 rounded-lg border border-slate-200 text-slate-600 hover:bg-slate-50">Cancel</button>
+                            </div>
+                          </form>
+                        )
+                      }
+
+                      return (
+                        <div key={r.id} className="flex items-center justify-between py-2 group">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded font-mono">{r.keyword}</span>
+                            <span className="text-xs text-slate-400">{MATCH_TYPE_LABELS[r.match_type]}</span>
+                            <span className="text-xs text-slate-300">→</span>
+                            {r.categories
+                              ? <span className="text-xs text-slate-700 font-medium">{r.categories.name}</span>
+                              : <span className="text-xs text-slate-400 italic">no category</span>}
+                            {scopedCompany ? (
+                              <span className="text-xs bg-violet-50 text-violet-700 border border-violet-200 px-1.5 py-0.5 rounded font-medium">
+                                {scopedCompany.name}
+                              </span>
+                            ) : (
+                              <span className="text-xs text-slate-400 italic">All facilities</span>
+                            )}
+                          </div>
+                          {isOwner && (
+                            <div className="flex gap-3 ml-3 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+                              <button onClick={() => startEditRule(r)} className="text-xs text-slate-400 hover:text-slate-700">Edit</button>
+                              <button onClick={() => deleteRule(r.id)} className="text-xs text-slate-400 hover:text-red-500">Delete</button>
+                            </div>
+                          )}
+                        </div>
+                      )
+                    })}
                   </div>
+                </div>
+              </div>
+            </section>
+          )}
+
+          {/* ── Transaction Sources ───────────────────────────────── */}
+          {activeTab === 'sources' && (
+            <section className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-100">
+                <h2 className="font-semibold text-slate-900">Transaction Sources</h2>
+                <p className="text-xs text-slate-500 mt-0.5">Bank and credit card sources used across transactions, imports, and account reconciliation</p>
+              </div>
+              <div className="p-5 space-y-2">
+                {sources.length === 0 && <p className="text-sm text-slate-400">No sources yet.</p>}
+                {sources.map(s => (
+                  <div key={s.id} className="flex items-center justify-between py-1 group">
+                    {renamingSourceId === s.id ? (
+                      <input
+                        autoFocus
+                        value={renameValue}
+                        onChange={e => setRenameValue(e.target.value)}
+                        onBlur={() => renameSource(s.id, s.name)}
+                        onKeyDown={e => {
+                          if (e.key === 'Enter') renameSource(s.id, s.name)
+                          if (e.key === 'Escape') setRenamingSourceId(null)
+                        }}
+                        className="flex-1 border border-slate-300 rounded-lg px-3 py-1 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900 mr-3"
+                      />
+                    ) : (
+                      <span className="text-sm text-slate-700 font-mono bg-slate-50 px-2 py-0.5 rounded">{s.name}</span>
+                    )}
+                    {isOwner && renamingSourceId !== s.id && (
+                      <div className="flex gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                        <button
+                          onClick={() => { setRenamingSourceId(s.id); setRenameValue(s.name) }}
+                          className="text-xs text-slate-400 hover:text-slate-700"
+                        >
+                          Rename
+                        </button>
+                        <button
+                          onClick={() => deleteSource(s.id, s.name)}
+                          className="text-xs text-slate-400 hover:text-red-500"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+                {isOwner && (
+                  <form onSubmit={addSource} className="flex gap-2 pt-2 border-t border-slate-100 mt-2">
+                    <input
+                      value={newSource}
+                      onChange={e => setNewSource(e.target.value)}
+                      placeholder="e.g. Chase Business Checking"
+                      className="flex-1 border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
+                    />
+                    <button type="submit" className="bg-slate-900 text-white text-sm px-4 py-1.5 rounded-lg hover:bg-slate-800">
+                      Add
+                    </button>
+                  </form>
                 )}
               </div>
-            )
-          })}
+            </section>
+          )}
 
-          {isOwner && (
-            <form onSubmit={addRule} className="pt-3 border-t border-slate-100 space-y-3">
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Keyword</label>
-                  <input
-                    value={newRule.keyword}
-                    onChange={e => setNewRule(p => ({ ...p, keyword: e.target.value }))}
-                    placeholder="e.g. PAYABLI, INSURANCE"
-                    className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
-                  />
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Match Type</label>
-                  <select
-                    value={newRule.match_type}
-                    onChange={e => setNewRule(p => ({ ...p, match_type: e.target.value }))}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
-                  >
-                    <option value="contains">Contains</option>
-                    <option value="starts_with">Starts with</option>
-                    <option value="exact">Exact match</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Category (optional)</label>
-                  <select
-                    value={newRule.category_id}
-                    onChange={e => setNewRule(p => ({ ...p, category_id: e.target.value }))}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
-                  >
-                    <option value="">— None —</option>
-                    <optgroup label="Income">
-                      {incomeCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </optgroup>
-                    <optgroup label="Expenses">
-                      {expenseCategories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                    </optgroup>
-                  </select>
-                </div>
-                <div className="col-span-2">
-                  <label className="block text-xs font-medium text-slate-500 mb-1">Facility (optional — leave blank to apply to all)</label>
-                  <select
-                    value={newRule.company_id}
-                    onChange={e => setNewRule(p => ({ ...p, company_id: e.target.value }))}
-                    className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
-                  >
-                    <option value="">All Facilities</option>
-                    {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                  </select>
-                </div>
+          {/* ── Companies / Entities ──────────────────────────────── */}
+          {activeTab === 'entities' && (
+            <section className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-100">
+                <h2 className="font-semibold text-slate-900">Companies / Entities</h2>
+                <p className="text-xs text-slate-500 mt-0.5">Your LLC entities</p>
               </div>
-              <button type="submit" className="bg-slate-900 text-white text-sm px-4 py-1.5 rounded-lg hover:bg-slate-800">
-                Add Rule
-              </button>
-            </form>
+              <div className="p-5 space-y-3">
+                {companies.map(c => (
+                  <div key={c.id} className="flex items-center justify-between group">
+                    <span className="text-sm text-slate-800">{c.name}</span>
+                    {isOwner && <button onClick={() => deleteCompany(c.id)} className="text-xs text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">Delete</button>}
+                  </div>
+                ))}
+                {companies.length === 0 && <p className="text-sm text-slate-400">No companies yet.</p>}
+                {isOwner && (
+                  <form onSubmit={addCompany} className="flex gap-2 pt-2 border-t border-slate-100 mt-2">
+                    <input value={newCompany} onChange={e => setNewCompany(e.target.value)} placeholder="e.g. Sunshine Storage LLC"
+                      className="flex-1 border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900" />
+                    <button type="submit" className="bg-slate-900 text-white text-sm px-4 py-1.5 rounded-lg hover:bg-slate-800">Add</button>
+                  </form>
+                )}
+              </div>
+            </section>
           )}
-        </div>
-      </section>
 
-      {/* Chart of Accounts */}
-      <section className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100">
-          <h2 className="font-semibold text-slate-900">Chart of Accounts</h2>
-          <p className="text-xs text-slate-500 mt-0.5">Income and expense categories</p>
-        </div>
-        <div className="p-5 space-y-4">
-          <div>
-            <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Income</h3>
-            <div className="space-y-1.5">
-              {incomeCategories.map(c => (
-                <div key={c.id} className="flex items-center justify-between">
-                  <span className="text-sm text-slate-700">{c.name}</span>
-                  {isOwner && <button onClick={() => deleteCategory(c.id)} className="text-xs text-slate-400 hover:text-red-500">Delete</button>}
+          {/* ── Report Branding ───────────────────────────────────── */}
+          {activeTab === 'branding' && (
+            <section className="bg-white rounded-xl border border-slate-200 overflow-hidden">
+              <div className="px-5 py-4 border-b border-slate-100">
+                <h2 className="font-semibold text-slate-900">Report Branding</h2>
+                <p className="text-xs text-slate-500 mt-0.5">Logo and name shown on printed P&L and Balance Sheet exports</p>
+              </div>
+              <div className="p-5 space-y-5">
+                {/* Logo */}
+                <div>
+                  <label className="block text-xs font-medium text-slate-500 mb-2">Company Logo</label>
+                  <div className="flex items-start gap-4">
+                    {logoUrl ? (
+                      <div className="relative flex-shrink-0">
+                        <img src={logoUrl} alt="Logo preview" className="h-16 w-auto object-contain border border-slate-200 rounded-lg p-1 bg-white" />
+                        <button
+                          onClick={removeLogo}
+                          className="absolute -top-1.5 -right-1.5 bg-white border border-slate-200 rounded-full w-5 h-5 flex items-center justify-center text-slate-400 hover:text-red-500 text-xs leading-none"
+                          title="Remove logo"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ) : (
+                      <div className="h-16 w-28 border-2 border-dashed border-slate-200 rounded-lg flex items-center justify-center flex-shrink-0">
+                        <span className="text-xs text-slate-400">No logo</span>
+                      </div>
+                    )}
+                    <div className="space-y-1.5">
+                      <label className="block">
+                        <span className="inline-flex items-center gap-2 bg-slate-900 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800 cursor-pointer">
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
+                          </svg>
+                          {logoUrl ? 'Replace logo' : 'Upload logo'}
+                        </span>
+                        <input type="file" accept="image/*" onChange={uploadLogo} className="sr-only" disabled={logoUploading} />
+                      </label>
+                      {logoUploading && <p className="text-xs text-slate-400">Uploading...</p>}
+                      {logoError && <p className="text-xs text-red-500">{logoError}</p>}
+                      <p className="text-xs text-slate-400">PNG, JPG, or SVG. Recommended height: 80–160px.</p>
+                    </div>
+                  </div>
                 </div>
-              ))}
-            </div>
-          </div>
-          <div>
-            <h3 className="text-xs font-semibold text-slate-500 uppercase tracking-wider mb-2">Expenses</h3>
-            <div className="space-y-1.5">
-              {expenseCategories.map(c => (
-                <div key={c.id} className="flex items-center justify-between">
-                  <span className="text-sm text-slate-700">{c.name}</span>
-                  {isOwner && <button onClick={() => deleteCategory(c.id)} className="text-xs text-slate-400 hover:text-red-500">Delete</button>}
-                </div>
-              ))}
-            </div>
-          </div>
-          {isOwner && (
-            <form onSubmit={addCategory} className="flex gap-2 pt-2 border-t border-slate-100">
-              <input value={newCategory.name} onChange={e => setNewCategory(p => ({ ...p, name: e.target.value }))}
-                placeholder="New category name"
-                className="flex-1 border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900" />
-              <select value={newCategory.type} onChange={e => setNewCategory(p => ({ ...p, type: e.target.value }))}
-                className="border border-slate-200 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900">
-                <option value="income">Income</option>
-                <option value="expense">Expense</option>
-              </select>
-              <button type="submit" className="bg-slate-900 text-white text-sm px-4 py-1.5 rounded-lg hover:bg-slate-800">Add</button>
-            </form>
+
+                {/* Name + Subtitle */}
+                <form onSubmit={saveBranding} className="space-y-3">
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Company / Report Name</label>
+                    <input
+                      value={reportName}
+                      onChange={e => setReportName(e.target.value)}
+                      placeholder="e.g. Sunshine Storage Holdings"
+                      className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-medium text-slate-500 mb-1">Subtitle (optional)</label>
+                    <input
+                      value={reportSubtitle}
+                      onChange={e => setReportSubtitle(e.target.value)}
+                      placeholder="e.g. Confidential — For Internal Use Only"
+                      className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
+                    />
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <button type="submit" className="bg-slate-900 text-white text-sm px-4 py-1.5 rounded-lg hover:bg-slate-800">
+                      Save Branding
+                    </button>
+                    {brandingSaved && <span className="text-xs text-emerald-600 font-medium">Saved</span>}
+                  </div>
+                </form>
+              </div>
+            </section>
           )}
-        </div>
-      </section>
 
-      {/* Report Branding */}
-      <section className="bg-white rounded-xl border border-slate-200 overflow-hidden">
-        <div className="px-5 py-4 border-b border-slate-100">
-          <h2 className="font-semibold text-slate-900">Report Branding</h2>
-          <p className="text-xs text-slate-500 mt-0.5">Logo and name shown on printed P&L and Balance Sheet exports</p>
-        </div>
-        <div className="p-5 space-y-5">
-          {/* Logo */}
-          <div>
-            <label className="block text-xs font-medium text-slate-500 mb-2">Company Logo</label>
-            <div className="flex items-start gap-4">
-              {logoUrl ? (
-                <div className="relative flex-shrink-0">
-                  <img src={logoUrl} alt="Logo preview" className="h-16 w-auto object-contain border border-slate-200 rounded-lg p-1 bg-white" />
-                  <button
-                    onClick={removeLogo}
-                    className="absolute -top-1.5 -right-1.5 bg-white border border-slate-200 rounded-full w-5 h-5 flex items-center justify-center text-slate-400 hover:text-red-500 text-xs leading-none"
-                    title="Remove logo"
-                  >
-                    ×
-                  </button>
+          {/* ── Account ───────────────────────────────────────────── */}
+          {activeTab === 'account' && (
+            <section className="bg-white rounded-xl border border-slate-200 p-5">
+              <h2 className="font-semibold text-slate-900 mb-3">Account</h2>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Email</span>
+                  <span className="text-slate-800">{currentUser?.email}</span>
                 </div>
-              ) : (
-                <div className="h-16 w-28 border-2 border-dashed border-slate-200 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <span className="text-xs text-slate-400">No logo</span>
-                </div>
-              )}
-              <div className="space-y-1.5">
-                <label className="block">
-                  <span className="inline-flex items-center gap-2 bg-slate-900 text-white text-xs px-3 py-1.5 rounded-lg hover:bg-slate-800 cursor-pointer">
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12" />
-                    </svg>
-                    {logoUrl ? 'Replace logo' : 'Upload logo'}
+                <div className="flex justify-between">
+                  <span className="text-slate-500">Role</span>
+                  <span className={`font-medium ${userRole === 'owner' ? 'text-slate-900' : 'text-slate-600'}`}>
+                    {userRole || 'No role assigned'}
                   </span>
-                  <input type="file" accept="image/*" onChange={uploadLogo} className="sr-only" disabled={logoUploading} />
-                </label>
-                {logoUploading && <p className="text-xs text-slate-400">Uploading...</p>}
-                {logoError && <p className="text-xs text-red-500">{logoError}</p>}
-                <p className="text-xs text-slate-400">PNG, JPG, or SVG. Recommended height: 80–160px.</p>
+                </div>
               </div>
-            </div>
-          </div>
+            </section>
+          )}
 
-          {/* Name + Subtitle */}
-          <form onSubmit={saveBranding} className="space-y-3">
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Company / Report Name</label>
-              <input
-                value={reportName}
-                onChange={e => setReportName(e.target.value)}
-                placeholder="e.g. Sunshine Storage Holdings"
-                className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1">Subtitle (optional)</label>
-              <input
-                value={reportSubtitle}
-                onChange={e => setReportSubtitle(e.target.value)}
-                placeholder="e.g. Confidential — For Internal Use Only"
-                className="w-full border border-slate-200 rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:ring-2 focus:ring-slate-900"
-              />
-            </div>
-            <div className="flex items-center gap-3">
-              <button type="submit" className="bg-slate-900 text-white text-sm px-4 py-1.5 rounded-lg hover:bg-slate-800">
-                Save Branding
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// Single scrollable column of categories (Income or Expenses)
+function CategoryColumn({ title, items, isOwner, onDelete }) {
+  return (
+    <div className="border border-slate-200 rounded-lg overflow-hidden">
+      <div className="px-3 py-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
+        <span className="text-xs font-semibold text-slate-500 uppercase tracking-wider">{title}</span>
+        <span className="text-xs text-slate-400">{items.length}</span>
+      </div>
+      <div className="divide-y divide-slate-50 max-h-96 overflow-y-auto">
+        {items.length === 0 && <p className="text-sm text-slate-400 px-3 py-2">None yet.</p>}
+        {items.map(c => (
+          <div key={c.id} className="flex items-center justify-between px-3 py-1.5 group hover:bg-slate-50">
+            <span className="text-sm text-slate-700">{c.name}</span>
+            {isOwner && (
+              <button onClick={() => onDelete(c.id)} className="text-xs text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
+                Delete
               </button>
-              {brandingSaved && <span className="text-xs text-emerald-600 font-medium">Saved</span>}
-            </div>
-          </form>
-        </div>
-      </section>
-
-      {/* Account */}
-      <section className="bg-white rounded-xl border border-slate-200 p-5">
-        <h2 className="font-semibold text-slate-900 mb-3">Account</h2>
-        <div className="space-y-2 text-sm">
-          <div className="flex justify-between">
-            <span className="text-slate-500">Email</span>
-            <span className="text-slate-800">{currentUser?.email}</span>
+            )}
           </div>
-          <div className="flex justify-between">
-            <span className="text-slate-500">Role</span>
-            <span className={`font-medium ${userRole === 'owner' ? 'text-slate-900' : 'text-slate-600'}`}>
-              {userRole || 'No role assigned'}
-            </span>
-          </div>
-        </div>
-      </section>
+        ))}
+      </div>
     </div>
   )
 }
