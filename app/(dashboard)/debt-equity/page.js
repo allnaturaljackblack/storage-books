@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { buildPL, formatCurrency } from '@/lib/reports/pl'
+import { fetchAllRows } from '@/lib/fetchAll'
 
 const CURRENT_YEAR = new Date().getFullYear()
 const CURRENT_MONTH = new Date().getMonth() + 1
@@ -41,10 +42,10 @@ export default function DebtEquityPage() {
 
   async function loadAll() {
     setLoading(true)
-    const [{ data: lo }, { data: co }, { data: tx }, { data: cat }, { data: bankCats }, { data: bankExcl }] = await Promise.all([
+    const [{ data: lo }, { data: co }, tx, { data: cat }, { data: bankCats }, { data: bankExcl }] = await Promise.all([
       supabase.from('loans').select('*').order('created_at'),
       supabase.from('companies').select('*').order('name'),
-      supabase.from('transactions').select('*, categories(name, type)').order('date'),
+      fetchAllRows(() => supabase.from('transactions').select('*, categories(name, type)').order('date')),
       supabase.from('categories').select('*'),
       supabase.from('bank_pl_categories').select('category_id, company_id'),
       supabase.from('bank_pl_exclusions').select('transaction_id, company_id'),

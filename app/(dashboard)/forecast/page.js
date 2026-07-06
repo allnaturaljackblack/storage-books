@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback, Fragment } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { filterTransactions, buildPL, formatCurrency } from '@/lib/reports/pl'
+import { fetchAllRows } from '@/lib/fetchAll'
 
 const CURRENT_YEAR = new Date().getFullYear()
 const CURRENT_MONTH = new Date().getMonth() + 1
@@ -58,7 +59,7 @@ export default function ForecastPage() {
   async function loadAll() {
     setLoading(true)
     const [
-      { data: tx },
+      tx,
       { data: cat },
       { data: co },
       { data: acc },
@@ -67,7 +68,7 @@ export default function ForecastPage() {
       { data: catExcl },
       { data: txExcl },
     ] = await Promise.all([
-      supabase.from('transactions').select('*, categories(name, type)').order('date'),
+      fetchAllRows(() => supabase.from('transactions').select('*, categories(name, type)').order('date')),
       supabase.from('categories').select('*'),
       supabase.from('companies').select('*').order('name'),
       supabase.from('accounts').select('*'),
@@ -76,7 +77,7 @@ export default function ForecastPage() {
       supabase.from('forecast_category_exclusions').select('category_id'),
       supabase.from('forecast_transaction_exclusions').select('transaction_id'),
     ])
-    setTransactions(tx || [])
+    setTransactions(tx)
     setCategories(cat || [])
     setCompanies(co || [])
     setAccounts(acc || [])

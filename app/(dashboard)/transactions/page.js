@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import CommentPanel from '@/components/CommentPanel'
 import SplitModal from '@/components/SplitModal'
+import { fetchAllRows } from '@/lib/fetchAll'
 
 
 export default function TransactionsPage() {
@@ -42,14 +43,14 @@ export default function TransactionsPage() {
 
   async function loadAll() {
     setLoading(true)
-    const [{ data: tx }, { data: co }, { data: cat }, { data: src }, { data: roleData }] = await Promise.all([
-      supabase.from('transactions').select('*, categories(name, type)').order('date', { ascending: false }).limit(1000),
+    const [tx, { data: co }, { data: cat }, { data: src }, { data: roleData }] = await Promise.all([
+      fetchAllRows(() => supabase.from('transactions').select('*, categories(name, type)').order('date', { ascending: false })),
       supabase.from('companies').select('*').order('name'),
       supabase.from('categories').select('*').order('sort_order'),
       supabase.from('sources').select('*').order('name'),
       supabase.from('user_roles').select('role').single(),
     ])
-    setTransactions(tx || [])
+    setTransactions(tx)
     setCompanies(co || [])
     setCategories(cat || [])
     setSources(src || [])

@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { formatCurrency } from '@/lib/reports/pl'
+import { fetchAllRows } from '@/lib/fetchAll'
 
 const MONTHS = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
 const CURRENT_YEAR = new Date().getFullYear()
@@ -37,13 +38,13 @@ export default function BalancesPage() {
       { data: acc, error: accErr },
       { data: bal },
       { data: co },
-      { data: tx },
+      tx,
       { data: src },
     ] = await Promise.all([
       supabase.from('accounts').select('*').order('created_at'),
       supabase.from('monthly_balances').select('*'),
       supabase.from('companies').select('*').order('name'),
-      supabase.from('transactions').select('date, amount, company_id, source_type, source').order('date'),
+      fetchAllRows(() => supabase.from('transactions').select('date, amount, company_id, source_type, source').order('date')),
       supabase.from('sources').select('*').order('name'),
     ])
     if (accErr) {

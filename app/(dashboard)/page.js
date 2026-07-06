@@ -3,6 +3,7 @@ import { useState, useEffect } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/utils/supabase/client'
 import { buildPL, formatCurrency } from '@/lib/reports/pl'
+import { fetchAllRows } from '@/lib/fetchAll'
 
 const CURRENT_YEAR = new Date().getFullYear()
 const CURRENT_MONTH = new Date().getMonth() + 1
@@ -49,8 +50,8 @@ export default function DashboardPage() {
 
   async function loadAll() {
     setLoading(true)
-    const [{ data: tx }, { data: co }, { data: cat }, { data: acc }, { data: bal }, { data: lo }, { data: bankCats }, { data: bankExcl }] = await Promise.all([
-      supabase.from('transactions').select('*, categories(name, type)').order('date', { ascending: false }),
+    const [tx, { data: co }, { data: cat }, { data: acc }, { data: bal }, { data: lo }, { data: bankCats }, { data: bankExcl }] = await Promise.all([
+      fetchAllRows(() => supabase.from('transactions').select('*, categories(name, type)').order('date', { ascending: false })),
       supabase.from('companies').select('*').order('name'),
       supabase.from('categories').select('*'),
       supabase.from('accounts').select('*'),

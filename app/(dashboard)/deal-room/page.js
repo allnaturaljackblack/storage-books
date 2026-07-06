@@ -2,6 +2,7 @@
 import { useState, useEffect, useCallback } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { buildPL, formatCurrency } from '@/lib/reports/pl'
+import { fetchAllRows } from '@/lib/fetchAll'
 
 const CURRENT_YEAR = new Date().getFullYear()
 const YEARS = [CURRENT_YEAR, CURRENT_YEAR - 1, CURRENT_YEAR - 2]
@@ -26,12 +27,12 @@ export default function DealRoomPage() {
 
   async function loadAll() {
     setLoading(true)
-    const [{ data: tx }, { data: co }, { data: cat }] = await Promise.all([
-      supabase.from('transactions').select('*, categories(name, type)').order('date'),
+    const [tx, { data: co }, { data: cat }] = await Promise.all([
+      fetchAllRows(() => supabase.from('transactions').select('*, categories(name, type)').order('date')),
       supabase.from('companies').select('*').order('name'),
       supabase.from('categories').select('*').order('sort_order'),
     ])
-    setTransactions(tx || [])
+    setTransactions(tx)
     setCompanies(co || [])
     setCategories(cat || [])
     setLoading(false)

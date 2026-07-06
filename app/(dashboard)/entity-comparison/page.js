@@ -2,6 +2,7 @@
 import { useState, useEffect } from 'react'
 import { createClient } from '@/utils/supabase/client'
 import { filterTransactions, buildPL, formatCurrency } from '@/lib/reports/pl'
+import { fetchAllRows } from '@/lib/fetchAll'
 
 const CURRENT_YEAR = new Date().getFullYear()
 const CURRENT_MONTH = new Date().getMonth() + 1
@@ -24,12 +25,12 @@ export default function EntityComparisonPage() {
 
   async function loadAll() {
     setLoading(true)
-    const [{ data: tx }, { data: cat }, { data: co }] = await Promise.all([
-      supabase.from('transactions').select('*, categories(name, type)').order('date'),
+    const [tx, { data: cat }, { data: co }] = await Promise.all([
+      fetchAllRows(() => supabase.from('transactions').select('*, categories(name, type)').order('date')),
       supabase.from('categories').select('*'),
       supabase.from('companies').select('*').order('name'),
     ])
-    setTransactions(tx || [])
+    setTransactions(tx)
     setCategories(cat || [])
     setCompanies(co || [])
     setLoading(false)
