@@ -24,6 +24,7 @@ export default function TransactionsPage() {
   // Selection
   const [selected, setSelected] = useState(new Set())
   const [bulkCategory, setBulkCategory] = useState('')
+  const [bulkCompany, setBulkCompany] = useState('')
   const [bulkSource, setBulkSource] = useState('')
   const [customBulkSource, setCustomBulkSource] = useState('')
 
@@ -108,17 +109,26 @@ export default function TransactionsPage() {
 
   async function bulkApply() {
     const resolvedSource = bulkSource === '__custom__' ? customBulkSource.trim() : bulkSource
-    if (selected.size === 0 || (!bulkCategory && !resolvedSource)) return
+    if (selected.size === 0 || (!bulkCategory && !resolvedSource && !bulkCompany)) return
+
+    // Reassigning entity moves transactions across every report — confirm first
+    if (bulkCompany) {
+      const target = companies.find(c => c.id === bulkCompany)?.name || 'the selected entity'
+      if (!confirm(`Move ${selected.size} transaction${selected.size !== 1 ? 's' : ''} to ${target}?`)) return
+    }
+
     const ids = [...selected]
     const updates = {}
     if (bulkCategory) updates.category_id = bulkCategory
     if (resolvedSource) updates.source = resolvedSource
+    if (bulkCompany) updates.company_id = bulkCompany
 
     const { error } = await supabase.from('transactions').update(updates).in('id', ids)
     if (error) { alert('Error applying changes: ' + error.message); return }
 
     setSelected(new Set())
     setBulkCategory('')
+    setBulkCompany('')
     setBulkSource('')
     setCustomBulkSource('')
     await loadAll()
@@ -168,7 +178,7 @@ export default function TransactionsPage() {
   const allSources = sources.map(s => s.name)
 
   const resolvedBulkSource = bulkSource === '__custom__' ? customBulkSource.trim() : bulkSource
-  const canApplyBulk = selected.size > 0 && (!!bulkCategory || !!resolvedBulkSource)
+  const canApplyBulk = selected.size > 0 && (!!bulkCategory || !!resolvedBulkSource || !!bulkCompany)
 
   return (
     <div className="p-8">
@@ -259,6 +269,13 @@ export default function TransactionsPage() {
             <>
               <div className="h-4 w-px bg-slate-200" />
               <span className="text-xs font-medium text-slate-700">{selected.size} selected —</span>
+
+              {/* Bulk reassign entity */}
+              <select value={bulkCompany} onChange={e => setBulkCompany(e.target.value)}
+                className="border border-slate-200 rounded-lg px-2 py-1.5 text-xs text-slate-700 focus:outline-none focus:ring-1 focus:ring-slate-900">
+                <option value="">Move to entity...</option>
+                {companies.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+              </select>
 
               {/* Bulk categorize */}
               <select value={bulkCategory} onChange={e => setBulkCategory(e.target.value)}
