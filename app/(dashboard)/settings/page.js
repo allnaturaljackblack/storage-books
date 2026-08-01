@@ -206,6 +206,13 @@ export default function SettingsPage() {
     await loadAll()
   }
 
+  // Reclassify a category between income and expense (moves it on the P&L).
+  async function setCategoryType(id, type) {
+    const { error } = await supabase.from('categories').update({ type }).eq('id', id)
+    if (error) { alert('Error updating category: ' + error.message); return }
+    await loadAll()
+  }
+
   async function addRule(e) {
     e.preventDefault()
     if (!newRule.keyword.trim()) return
@@ -349,8 +356,8 @@ export default function SettingsPage() {
                 )}
 
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <CategoryColumn title="Income" items={incomeCategories} isOwner={isOwner} onDelete={deleteCategory} />
-                  <CategoryColumn title="Expenses" items={expenseCategories} isOwner={isOwner} onDelete={deleteCategory} />
+                  <CategoryColumn title="Income" items={incomeCategories} isOwner={isOwner} onDelete={deleteCategory} onSetType={setCategoryType} />
+                  <CategoryColumn title="Expenses" items={expenseCategories} isOwner={isOwner} onDelete={deleteCategory} onSetType={setCategoryType} />
                 </div>
               </div>
             </section>
@@ -659,7 +666,7 @@ export default function SettingsPage() {
 }
 
 // Single scrollable column of categories (Income or Expenses)
-function CategoryColumn({ title, items, isOwner, onDelete }) {
+function CategoryColumn({ title, items, isOwner, onDelete, onSetType }) {
   return (
     <div className="border border-slate-200 rounded-lg overflow-hidden">
       <div className="px-3 py-2 bg-slate-50 border-b border-slate-100 flex items-center justify-between">
@@ -668,16 +675,27 @@ function CategoryColumn({ title, items, isOwner, onDelete }) {
       </div>
       <div className="divide-y divide-slate-50 max-h-96 overflow-y-auto">
         {items.length === 0 && <p className="text-sm text-slate-400 px-3 py-2">None yet.</p>}
-        {items.map(c => (
-          <div key={c.id} className="flex items-center justify-between px-3 py-1.5 group hover:bg-slate-50">
-            <span className="text-sm text-slate-700">{c.name}</span>
-            {isOwner && (
-              <button onClick={() => onDelete(c.id)} className="text-xs text-slate-400 hover:text-red-500 opacity-0 group-hover:opacity-100 transition-opacity">
-                Delete
-              </button>
-            )}
-          </div>
-        ))}
+        {items.map(c => {
+          const target = c.type === 'income' ? 'expense' : 'income'
+          const targetLabel = target === 'income' ? 'Income' : 'Expenses'
+          return (
+            <div key={c.id} className="flex items-center justify-between px-3 py-1.5 group hover:bg-slate-50">
+              <span className="text-sm text-slate-700">{c.name}</span>
+              {isOwner && (
+                <div className="flex items-center gap-3 opacity-0 group-hover:opacity-100 transition-opacity">
+                  <button onClick={() => onSetType(c.id, target)}
+                    className="text-xs text-slate-400 hover:text-slate-700 whitespace-nowrap"
+                    title={`Move to ${targetLabel}`}>
+                    → {targetLabel}
+                  </button>
+                  <button onClick={() => onDelete(c.id)} className="text-xs text-slate-400 hover:text-red-500">
+                    Delete
+                  </button>
+                </div>
+              )}
+            </div>
+          )
+        })}
       </div>
     </div>
   )
